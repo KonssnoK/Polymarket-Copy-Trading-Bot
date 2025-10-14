@@ -32,7 +32,6 @@ https://solscan.io/tx/5aRkCjGbwAyYC9k3ahP9KsJJd1AyNNvwDuDSKiYsYSbU4rCzQZju5HMmca
 - Raydium migration tx
 https://solscan.io/tx/3VTRdb52aS33eqfXC28Nu4CeUBCHGg1CgwZp88CqUd61NmPzwkeQ75wZG6mPdjdgiYSLZnosE82iW4cDj9kLsiZb?cluster=devnet
 
-### If you need some help, please contact me
 ## 🙋‍♂️ Cᴏɴᴛᴀᴄᴛ ᴍᴇ Oɴ ʜᴇʀᴇ: 👋 ##
 
 Telegram: https://t.me/opensea712
