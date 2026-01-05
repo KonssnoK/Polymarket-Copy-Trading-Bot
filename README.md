@@ -4,7 +4,7 @@
 
 <div align="center">
 
-**The Best Open-Source Polymarket Copy Trading Bot - Automatically Mirror Top Traders with Intelligent Position Sizing and Real-Time Execution**
+**Automated copy trading (copytrading) bot for Polymarket that mirrors trades from top performers with intelligent position sizing and real-time execution.**
 
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
@@ -305,7 +305,7 @@ An advanced version with **Real-Time Data Stream (RTDS)** monitoring is availabl
 - **Fastest Trade Detection**: Near-instantaneous trade replication
 - **Reduced Latency**: Optimized for minimal execution delay
 - **Lower API Load**: More efficient data streaming architecture
-- **Superior Performance**: Enhanced copy trading capabilities
+- **Superior Performance**: Enhanced copy trading (copytrading) capabilities
 
 <!-- <div align="center">
 
