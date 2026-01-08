@@ -72,3 +72,13 @@ docker-compose.override.yml
 
 # IDE
 *.code-workspace
+
+polymarket_copy_trading_bot.egg-info/
+polymarket_copy_trading_bot/__pycache__/
+polymarket_copy_trading_bot/config/__pycache__/
+polymarket_copy_trading_bot/utils/__pycache__/
+polymarket_copy_trading_bot/services/__pycache__/
+
+polymarket_copy_trading_bot/interfaces/__pycache__/
+
+polymarket_copy_trading_bot/models/__pycache__/

@@ -9,7 +9,7 @@ from typing import Dict, List
 from polymarket_copy_trading_bot.config.env import ENV
 from polymarket_copy_trading_bot.interfaces.user import UserActivity, UserPosition
 from polymarket_copy_trading_bot.models.user_history import get_user_activity_collection
-from polymarket_copy_trading_bot.utils.clob_client import ClobClient
+from py_clob_client.client import ClobClient
 from polymarket_copy_trading_bot.utils.logger import Logger
 from polymarket_copy_trading_bot.utils.position_helpers import (
     fetch_my_positions_and_balance,
@@ -176,16 +176,20 @@ def _execute_single_trade(clob_client: ClobClient, trade: TradeWithUser) -> None
     Logger.balance(data["my_balance"], data["user_balance"], trade.user_address)
 
     condition = "buy" if trade.trade.get("side") == "BUY" else "sell"
-    post_order(
-        clob_client,
-        condition,
-        data["my_position"],
-        data["user_position"],
-        trade.trade,
-        data["my_balance"],
-        data["user_balance"],
-        trade.user_address,
-    )
+    try:
+        post_order(
+            clob_client,
+            condition,
+            data["my_position"],
+            data["user_position"],
+            trade.trade,
+            data["my_balance"],
+            data["user_balance"],
+            trade.user_address,
+        )
+    except Exception as exc:  # noqa: BLE001
+        Logger.error(f"Trade execution failed: {exc}")
+        collection.update_one({"_id": trade.trade.get("_id")}, {"$set": {"bot": True}})
 
     Logger.separator()
 

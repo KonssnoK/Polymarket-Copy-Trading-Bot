@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import signal
 import sys
+import threading
 import time
 
 from polymarket_copy_trading_bot.config.db import close_db, connect_db
@@ -18,6 +19,8 @@ USER_ADDRESSES = ENV.user_addresses
 PROXY_WALLET = ENV.proxy_wallet
 
 _is_shutting_down = False
+_monitor_thread: threading.Thread | None = None
+_executor_thread: threading.Thread | None = None
 
 
 def _graceful_shutdown(signal_name: str) -> None:
@@ -34,7 +37,9 @@ def _graceful_shutdown(signal_name: str) -> None:
         stop_trade_monitor()
         stop_trade_executor()
         Logger.info("Waiting for services to finish current operations...")
-        time.sleep(2)
+        for thread in (_monitor_thread, _executor_thread):
+            if thread and thread.is_alive():
+                thread.join(timeout=5)
         close_db()
         Logger.success("Graceful shutdown completed")
         sys.exit(0)
@@ -53,6 +58,7 @@ def _install_signal_handlers() -> None:
 
 
 def main() -> None:
+    global _monitor_thread, _executor_thread
     try:
         print("\nFirst time running the bot?")
         print("  Read the guide: GETTING_STARTED.md")
@@ -73,10 +79,28 @@ def main() -> None:
 
         Logger.separator()
         Logger.info("Starting trade monitor...")
-        trade_monitor()
+        _monitor_thread = threading.Thread(
+            target=trade_monitor,
+            name="trade-monitor",
+            daemon=True,
+        )
+        _monitor_thread.start()
 
         Logger.info("Starting trade executor...")
-        trade_executor(clob_client)
+        _executor_thread = threading.Thread(
+            target=trade_executor,
+            args=(clob_client,),
+            name="trade-executor",
+            daemon=True,
+        )
+        _executor_thread.start()
+
+        while True:
+            time.sleep(0.5)
+            if _monitor_thread and not _monitor_thread.is_alive():
+                raise RuntimeError("Trade monitor stopped unexpectedly")
+            if _executor_thread and not _executor_thread.is_alive():
+                raise RuntimeError("Trade executor stopped unexpectedly")
     except Exception as exc:  # noqa: BLE001
         Logger.error(f"Fatal error during startup: {exc}")
         _graceful_shutdown("startup-error")

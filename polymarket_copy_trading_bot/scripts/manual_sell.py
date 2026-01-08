@@ -8,8 +8,11 @@ from typing import Any
 import requests
 from web3 import Web3
 
+from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import BalanceAllowanceParams, OrderArgs, OrderType, AssetType
+from py_clob_client.order_builder.constants import SELL
+
 from polymarket_copy_trading_bot.config.env import ENV
-from polymarket_copy_trading_bot.utils.clob_client import AssetType, ClobClient, OrderType, Side, SignatureType
 
 PROXY_WALLET = ENV.proxy_wallet
 PRIVATE_KEY = ENV.private_key
@@ -29,29 +32,18 @@ def _is_gnosis_safe(address: str, web3: Web3) -> bool:
 
 def _create_clob_client(web3: Web3) -> ClobClient:
     is_proxy_safe = _is_gnosis_safe(PROXY_WALLET, web3)
-    signature_type = SignatureType.POLY_GNOSIS_SAFE if is_proxy_safe else SignatureType.EOA
+    signature_type = 2 if is_proxy_safe else 0
 
     client = ClobClient(
         CLOB_HTTP_URL,
-        POLYGON_CHAIN_ID,
-        PRIVATE_KEY,
-        None,
-        signature_type,
-        PROXY_WALLET if is_proxy_safe else None,
+        chain_id=POLYGON_CHAIN_ID,
+        key=PRIVATE_KEY,
+        signature_type=signature_type,
+        funder=PROXY_WALLET,
     )
 
-    creds = client.create_api_key()
-    if not getattr(creds, "key", None):
-        creds = client.derive_api_key()
-
-    return ClobClient(
-        CLOB_HTTP_URL,
-        POLYGON_CHAIN_ID,
-        PRIVATE_KEY,
-        creds,
-        signature_type,
-        PROXY_WALLET if is_proxy_safe else None,
-    )
+    client.set_api_creds(client.create_or_derive_api_creds())
+    return client
 
 
 def _fetch_positions() -> list[dict]:
@@ -72,7 +64,9 @@ def _find_matching_position(positions: list[dict], search_query: str) -> dict | 
 def _update_polymarket_cache(clob_client: ClobClient, token_id: str) -> None:
     try:
         print("Updating Polymarket balance cache for token...")
-        clob_client.update_balance_allowance({"asset_type": AssetType.CONDITIONAL, "token_id": token_id})
+        clob_client.update_balance_allowance(
+            BalanceAllowanceParams(asset_type=AssetType.CONDITIONAL, token_id=token_id)
+        )
         print("Cache updated successfully\n")
     except Exception as exc:  # noqa: BLE001
         print(f"Warning: Could not update cache: {exc}")
@@ -93,32 +87,32 @@ def _sell_position(clob_client: ClobClient, position: dict, sell_size: float) ->
     while remaining > 0 and retry < RETRY_LIMIT:
         try:
             order_book = clob_client.get_order_book(position.get("asset"))
-            bids = order_book.get("bids") if isinstance(order_book, dict) else None
+            bids = order_book.bids
             if not bids:
                 print("No bids available in order book")
                 break
 
-            max_bid = max(bids, key=lambda bid: float(bid.get("price", 0)))
-            print(f"Best bid: {max_bid.get('size')} tokens @ ${max_bid.get('price')}")
+            max_bid = max(bids, key=lambda bid: float(bid.price))
+            print(f"Best bid: {max_bid.size} tokens @ ${max_bid.price}")
 
-            bid_size = float(max_bid.get("size"))
+            bid_size = float(max_bid.size)
             order_amount = remaining if remaining <= bid_size else bid_size
 
-            order_args = {
-                "side": Side.SELL,
-                "tokenID": position.get("asset"),
-                "amount": order_amount,
-                "price": float(max_bid.get("price")),
-            }
+            order_args = OrderArgs(
+                token_id=str(position.get("asset") or ""),
+                price=float(max_bid.price),
+                size=order_amount,
+                side=SELL,
+            )
 
-            print(f"Selling {order_amount:.2f} tokens at ${order_args['price']}...")
-            signed = clob_client.create_market_order(order_args)
+            print(f"Selling {order_amount:.2f} tokens at ${order_args.price}...")
+            signed = clob_client.create_order(order_args)
             resp = clob_client.post_order(signed, OrderType.FOK)
             if resp and resp.get("success") is True:
                 retry = 0
-                sold_value = order_amount * order_args["price"]
+                sold_value = order_amount * order_args.price
                 print(
-                    f"SUCCESS: Sold {order_amount:.2f} tokens at ${order_args['price']} (Total: ${sold_value:.2f})"
+                    f"SUCCESS: Sold {order_amount:.2f} tokens at ${order_args.price} (Total: ${sold_value:.2f})"
                 )
                 remaining -= order_amount
                 if remaining > 0:

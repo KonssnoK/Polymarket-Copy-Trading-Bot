@@ -6,8 +6,10 @@ from typing import Any
 
 from web3 import Web3
 
+from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
+
 from polymarket_copy_trading_bot.config.env import ENV
-from polymarket_copy_trading_bot.utils.clob_client import AssetType, ClobClient, SignatureType
 
 PROXY_WALLET = ENV.proxy_wallet
 PRIVATE_KEY = ENV.private_key
@@ -16,6 +18,8 @@ USDC_CONTRACT_ADDRESS = ENV.usdc_contract_address
 CLOB_HTTP_URL = ENV.clob_http_url
 POLYGON_CHAIN_ID = 137
 POLYMARKET_EXCHANGE = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
+NEG_RISK_EXCHANGE = "0xC5d563A36AE78145C45a50134d48A1215220f80a"
+NEG_RISK_ADAPTER = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"
 NATIVE_USDC_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
 
 USDC_ABI = [
@@ -59,46 +63,29 @@ USDC_ABI = [
 def _build_clob_client(web3: Web3) -> ClobClient:
     code = web3.eth.get_code(PROXY_WALLET)
     is_proxy_safe = code not in (b"", b"0x") and len(code) > 0
-    signature_type = SignatureType.POLY_GNOSIS_SAFE if is_proxy_safe else SignatureType.EOA
+    signature_type = 2 if is_proxy_safe else 0
 
-    initial_client = ClobClient(
+    client = ClobClient(
         CLOB_HTTP_URL,
-        POLYGON_CHAIN_ID,
-        PRIVATE_KEY,
-        None,
-        signature_type,
-        PROXY_WALLET if is_proxy_safe else None,
+        chain_id=POLYGON_CHAIN_ID,
+        key=PRIVATE_KEY,
+        signature_type=signature_type,
+        funder=PROXY_WALLET,
     )
 
-    creds = None
     try:
-        creds = initial_client.create_api_key()
-    except Exception:
-        pass
-    if not getattr(creds, "key", None):
-        try:
-            creds = initial_client.derive_api_key()
-        except Exception:
-            creds = None
+        client.set_api_creds(client.create_or_derive_api_creds())
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("Failed to obtain Polymarket API credentials") from exc
 
-    if not getattr(creds, "key", None):
-        raise RuntimeError("Failed to obtain Polymarket API credentials")
-
-    return ClobClient(
-        CLOB_HTTP_URL,
-        POLYGON_CHAIN_ID,
-        PRIVATE_KEY,
-        creds,
-        signature_type,
-        PROXY_WALLET if is_proxy_safe else None,
-    )
+    return client
 
 
 def _sync_polymarket_allowance_cache(decimals: int, web3: Web3) -> None:
     try:
         print("Syncing Polymarket allowance cache...")
         clob_client = _build_clob_client(web3)
-        update_params = {"asset_type": AssetType.COLLATERAL}
+        update_params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
 
         update_result = clob_client.update_balance_allowance(update_params)
         if isinstance(update_result, dict) and "error" in update_result:
@@ -140,39 +127,43 @@ def main() -> None:
     print(f"USDC Decimals: {decimals}")
 
     local_balance = usdc_contract.functions.balanceOf(PROXY_WALLET).call()
-    local_allowance = usdc_contract.functions.allowance(PROXY_WALLET, POLYMARKET_EXCHANGE).call()
+    spender_addresses = [POLYMARKET_EXCHANGE, NEG_RISK_EXCHANGE, NEG_RISK_ADAPTER]
 
     local_balance_formatted = Web3.from_wei(local_balance, "mwei")
-    local_allowance_formatted = Web3.from_wei(local_allowance, "mwei")
-
     print(f"Your USDC Balance ({USDC_CONTRACT_ADDRESS}): {local_balance_formatted} USDC")
-    print(f"Current Allowance: {local_allowance_formatted} USDC")
-    print(f"Polymarket Exchange: {POLYMARKET_EXCHANGE}\n")
+    print("Checking allowance for Polymarket spenders:\n")
 
-    if int(local_allowance) < int(local_balance) or int(local_allowance) == 0:
-        print("Allowance is insufficient or zero!")
-        print("Setting unlimited allowance for Polymarket...\n")
+    max_allowance = (1 << 256) - 1
+    gas_price = web3.eth.gas_price
+    nonce = web3.eth.get_transaction_count(account.address, "pending")
 
-        max_allowance = (1 << 256) - 1
-        gas_price = web3.eth.gas_price
-        tx = usdc_contract.functions.approve(POLYMARKET_EXCHANGE, max_allowance).build_transaction(
-            {
-                "from": account.address,
-                "nonce": web3.eth.get_transaction_count(account.address),
-                "gas": 100000,
-                "gasPrice": gas_price,
-            }
-        )
-        signed = account.sign_transaction(tx)
-        tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
-        print(f"Transaction sent: {tx_hash.hex()}")
-        receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
-        if receipt.status == 1:
-            print("Allowance set successfully!")
+    for spender in spender_addresses:
+        local_allowance = usdc_contract.functions.allowance(PROXY_WALLET, spender).call()
+        local_allowance_formatted = Web3.from_wei(local_allowance, "mwei")
+        print(f"Spender: {spender}")
+        print(f"  Allowance: {local_allowance_formatted} USDC")
+
+        if int(local_allowance) < int(local_balance) or int(local_allowance) == 0:
+            print("  Allowance insufficient; setting unlimited allowance...")
+            tx = usdc_contract.functions.approve(spender, max_allowance).build_transaction(
+                {
+                    "from": account.address,
+                    "nonce": nonce,
+                    "gas": 100000,
+                    "gasPrice": gas_price,
+                }
+            )
+            signed = account.sign_transaction(tx)
+            tx_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
+            print(f"  Transaction sent: {tx_hash.hex()}")
+            receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+            if receipt.status == 1:
+                print("  Allowance set successfully!")
+            else:
+                print("  Transaction failed!")
+            nonce += 1
         else:
-            print("Transaction failed!")
-    else:
-        print("Allowance is already sufficient! No action needed.")
+            print("  Allowance already sufficient.\n")
 
     _sync_polymarket_allowance_cache(decimals, web3)
 

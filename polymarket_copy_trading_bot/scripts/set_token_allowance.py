@@ -68,7 +68,7 @@ def main() -> None:
         }
     )
     signed = account.sign_transaction(tx)
-    tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
+    tx_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
     print(f"Transaction sent: {tx_hash.hex()}")
     receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
 

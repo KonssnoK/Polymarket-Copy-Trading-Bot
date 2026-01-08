@@ -11,7 +11,9 @@ from polymarket_copy_trading_bot.config.copy_strategy import (
 from polymarket_copy_trading_bot.config.env import ENV
 from polymarket_copy_trading_bot.interfaces.user import UserActivity, UserPosition
 from polymarket_copy_trading_bot.models.user_history import get_user_activity_collection
-from polymarket_copy_trading_bot.utils.clob_client import ClobClient, OrderType, Side
+from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import MarketOrderArgs, OrderArgs, OrderType
+from py_clob_client.order_builder.constants import BUY, SELL
 from polymarket_copy_trading_bot.utils.error_helpers import (
     extract_error_message,
     is_insufficient_balance_or_allowance_error,
@@ -59,25 +61,27 @@ def post_order(
         abort_due_to_funds = False
         while remaining > 0 and retry < RETRY_LIMIT:
             order_book = clob_client.get_order_book(trade.get("asset", ""))
-            bids = order_book.get("bids") if isinstance(order_book, dict) else None
+            bids = order_book.bids
             if not bids:
                 Logger.warning("No bids available in order book")
                 user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
                 break
 
-            max_bid = max(bids, key=lambda bid: float(bid.get("price", 0)))
-            Logger.info(f"Best bid: {max_bid.get('size')} @ ${max_bid.get('price')}")
+            max_bid = max(bids, key=lambda bid: float(bid.price))
+            max_bid_price = float(max_bid.price)
+            max_bid_size = float(max_bid.size)
+            Logger.info(f"Best bid: {max_bid_size} @ ${max_bid_price}")
 
-            max_size = float(max_bid.get("size"))
-            price = float(max_bid.get("price"))
+            max_size = max_bid_size
+            price = max_bid_price
             amount = remaining if remaining <= max_size else max_size
 
-            order_args = {
-                "side": Side.SELL,
-                "tokenID": my_position.get("asset"),
-                "amount": amount,
-                "price": price,
-            }
+            order_args = MarketOrderArgs(
+                token_id=str(my_position.get("asset") or ""),
+                amount=amount,
+                price=price,
+                side=SELL,
+            )
             signed_order = clob_client.create_market_order(order_args)
             resp = clob_client.post_order(signed_order, OrderType.FOK)
             if resp and resp.get("success") is True:
@@ -146,19 +150,25 @@ def post_order(
         abort_due_to_funds = False
         total_bought_tokens = 0.0
 
+        token_id = str(trade.get("asset") or "")
+        condition_id = str(trade.get("conditionId") or "")
+        trade_price = float(trade.get("price") or 0)
         while remaining > 0 and retry < RETRY_LIMIT:
-            order_book = clob_client.get_order_book(trade.get("asset", ""))
-            asks = order_book.get("asks") if isinstance(order_book, dict) else None
+            order_book = clob_client.get_order_book(token_id)
+            asks = order_book.asks
             if not asks:
-                Logger.warning("No asks available in order book")
+                Logger.warning(
+                    f"No asks available in order book (token_id={token_id}, condition_id={condition_id}, trade_price=${trade_price:.4f})"
+                )
                 user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
                 break
 
-            min_ask = min(asks, key=lambda ask: float(ask.get("price", 0)))
-            price = float(min_ask.get("price"))
-            Logger.info(f"Best ask: {min_ask.get('size')} @ ${price}")
+            min_ask = min(asks, key=lambda ask: float(ask.price))
+            price = float(min_ask.price)
+            ask_size = float(min_ask.size)
+            Logger.info(f"Best ask: {ask_size} @ ${price}")
 
-            if price - 0.05 > float(trade.get("price") or 0):
+            if price - 0.05 > trade_price:
                 Logger.warning("Price slippage too high - skipping trade")
                 user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
                 break
@@ -173,15 +183,15 @@ def post_order(
                 )
                 break
 
-            max_order_size = float(min_ask.get("size")) * price
+            max_order_size = ask_size * price
             order_size = min(remaining, max_order_size)
 
-            order_args = {
-                "side": Side.BUY,
-                "tokenID": trade.get("asset"),
-                "amount": order_size,
-                "price": price,
-            }
+            order_args = MarketOrderArgs(
+                token_id=str(token_id),
+                amount=order_size,
+                price=price,
+                side=BUY,
+            )
 
             Logger.info(
                 f"Creating order: ${order_size:.2f} @ ${price} (Balance: ${my_balance:.2f})"
@@ -319,17 +329,22 @@ def post_order(
         abort_due_to_funds = False
         total_sold_tokens = 0.0
 
+        token_id = str(trade.get("asset") or "")
+        condition_id = str(trade.get("conditionId") or "")
         while remaining > 0 and retry < RETRY_LIMIT:
-            order_book = clob_client.get_order_book(trade.get("asset", ""))
-            bids = order_book.get("bids") if isinstance(order_book, dict) else None
+            order_book = clob_client.get_order_book(token_id)
+            bids = order_book.bids
             if not bids:
                 user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
-                Logger.warning("No bids available in order book")
+                Logger.warning(
+                    f"No bids available in order book (token_id={token_id}, condition_id={condition_id})"
+                )
                 break
 
-            max_bid = max(bids, key=lambda bid: float(bid.get("price", 0)))
-            price = float(max_bid.get("price"))
-            Logger.info(f"Best bid: {max_bid.get('size')} @ ${price}")
+            max_bid = max(bids, key=lambda bid: float(bid.price))
+            price = float(max_bid.price)
+            bid_size = float(max_bid.size)
+            Logger.info(f"Best bid: {bid_size} @ ${price}")
 
             if remaining < MIN_ORDER_SIZE_TOKENS:
                 Logger.info(
@@ -338,7 +353,7 @@ def post_order(
                 user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
                 break
 
-            sell_amount = min(remaining, float(max_bid.get("size")))
+            sell_amount = min(remaining, bid_size)
             if sell_amount < MIN_ORDER_SIZE_TOKENS:
                 Logger.info(
                     f"Order amount ({sell_amount:.2f} tokens) below minimum - completing trade"
@@ -346,12 +361,12 @@ def post_order(
                 user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
                 break
 
-            order_args = {
-                "side": Side.SELL,
-                "tokenID": trade.get("asset"),
-                "amount": sell_amount,
-                "price": price,
-            }
+            order_args = MarketOrderArgs(
+                token_id=str(token_id),
+                amount=sell_amount,
+                price=price,
+                side=SELL,
+            )
             signed_order = clob_client.create_market_order(order_args)
             resp = clob_client.post_order(signed_order, OrderType.FOK)
             if resp and resp.get("success") is True:
