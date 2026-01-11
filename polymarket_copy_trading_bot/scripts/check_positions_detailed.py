@@ -30,15 +30,13 @@ def main() -> None:
     for pos in sorted_positions:
         total_value += float(pos.get("currentValue") or 0)
         print("-" * 70)
-        print(f"Market: {pos.get('title') or 'Unknown'}")
-        print(f"Outcome: {pos.get('outcome') or 'Unknown'}")
         asset = pos.get("asset") or ""
-        print(f"Asset ID: {asset[:10]}...")
-        print(f"Size: {float(pos.get('size') or 0):.2f} shares")
-        print(f"Avg Price: ${float(pos.get('avgPrice') or 0):.4f}")
-        print(f"Current Price: ${float(pos.get('curPrice') or 0):.4f}")
-        print(f"Initial Value: ${float(pos.get('initialValue') or 0):.2f}")
-        print(f"Current Value: ${float(pos.get('currentValue') or 0):.2f}")
+        
+        print(f"Market: {pos.get('title') or 'Unknown'} - Asset ID: {asset[:10]}...")
+        print(f"Outcome: {pos.get('outcome') or 'Unknown'}")
+        
+        print(f"Size: {float(pos.get('size') or 0):.2f} shares @  Avg Price: ${float(pos.get('avgPrice') or 0):.4f} -> Current Price: ${float(pos.get('curPrice') or 0):.4f}")
+        print(f"Initial Value: ${float(pos.get('initialValue') or 0):.2f} -> Current Value: ${float(pos.get('currentValue') or 0):.2f}")
         print(
             f"PnL: ${float(pos.get('cashPnl') or 0):.2f} ({float(pos.get('percentPnl') or 0):.2f}%)"
         )

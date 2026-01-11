@@ -50,7 +50,7 @@ def _to_bytes32(condition_id: str) -> bytes:
     return raw.rjust(32, b"\x00")
 
 
-def _redeem_position(contract, condition_id: str) -> bool:
+def _redeem_position(web3: Web3, contract, condition_id: str) -> bool:
     try:
         condition_bytes = _to_bytes32(condition_id)
         parent_collection = b"\x00" * 32
@@ -63,17 +63,17 @@ def _redeem_position(contract, condition_id: str) -> bool:
             index_sets,
         ).build_transaction(
             {
-                "from": contract.web3.eth.default_account,
-                "nonce": contract.web3.eth.get_transaction_count(contract.web3.eth.default_account),
+                "from": web3.eth.default_account,
+                "nonce": web3.eth.get_transaction_count(web3.eth.default_account, "pending"),
                 "gas": 500000,
-                "gasPrice": contract.web3.eth.gas_price,
+                "gasPrice": web3.eth.gas_price,
             }
         )
 
-        signed = contract.web3.eth.account.sign_transaction(tx, PRIVATE_KEY)
-        tx_hash = contract.web3.eth.send_raw_transaction(signed.raw_transaction)
+        signed = web3.eth.account.sign_transaction(tx, PRIVATE_KEY)
+        tx_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
         print(f"  Transaction submitted: {tx_hash.hex()}")
-        receipt = contract.web3.eth.wait_for_transaction_receipt(tx_hash)
+        receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
         if receipt.status == 1:
             print("  Redemption successful")
             return True
@@ -163,7 +163,7 @@ def main() -> None:
                 f"  {status} {pos.get('title') or pos.get('slug')} | {pos.get('outcome')} | {float(pos.get('size') or 0):.2f} tokens | ${float(pos.get('currentValue') or 0):.2f}"
             )
 
-        if _redeem_position(contract, condition_id):
+        if _redeem_position(web3, contract, condition_id):
             success_count += 1
             total_value += condition_value
         else:
