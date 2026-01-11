@@ -50,6 +50,23 @@ def _find_position(sorted_positions: list[dict], position_id: str) -> dict | Non
     return None
 
 
+def _resolve_position_ids(
+    sorted_positions: list[dict], position_ids: list[str]
+) -> list[str]:
+    resolved: list[str] = []
+    for pid in position_ids:
+        pos = _find_position(sorted_positions, pid)
+        if not pos:
+            print(f"Position not found: {pid}")
+            continue
+        token_id = pos.get("asset")
+        if not token_id:
+            print(f"Position missing token id: {pid}")
+            continue
+        resolved.append(str(token_id))
+    return resolved
+
+
 def _update_polymarket_cache(clob_client: ClobClient, token_id: str) -> None:
     try:
         clob_client.update_balance_allowance(
@@ -146,8 +163,9 @@ def _describe_position(position: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Close a single position by ID.")
     parser.add_argument(
-        "position_id",
-        help="Either the numeric ID from list_positions_lean.py or the token/condition id",
+        "position_ids",
+        nargs="+",
+        help="Numeric IDs from list_positions_lean.py or token/condition ids",
     )
     parser.add_argument(
         "--yes",
@@ -162,24 +180,39 @@ def main() -> None:
         return
 
     sorted_positions = _sort_positions(positions)
-    position = _find_position(sorted_positions, args.position_id)
-    if not position:
-        print(f"Position not found: {args.position_id}")
+    token_ids = _resolve_position_ids(sorted_positions, args.position_ids)
+    if not token_ids:
+        print("No valid positions selected.")
         print("Use list_positions_lean.py to see valid IDs.")
         raise SystemExit(1)
 
-    print("Position selected:")
-    _describe_position(position)
+    positions_by_token = {str(pos.get("asset")): pos for pos in sorted_positions}
+
+    print("Positions selected:")
+    for token_id in token_ids:
+        position = positions_by_token.get(token_id)
+        if not position:
+            print(f"Token not found in cached positions: {token_id}")
+            continue
+        print("-" * 50)
+        _describe_position(position)
 
     if not args.yes:
-        confirm = input("Close this position? Type 'yes' to confirm: ").strip().lower()
+        confirm = input("Close these positions? Type 'yes' to confirm: ").strip().lower()
         if confirm != "yes":
             print("Cancelled.")
             return
 
     clob_client = create_clob_client()
     print("Connected to Polymarket CLOB")
-    _sell_entire_position(clob_client, position)
+    for token_id in token_ids:
+        position = positions_by_token.get(token_id)
+        if not position:
+            print(f"Skipping missing position: {token_id}")
+            continue
+        print("-" * 50)
+        print(f"Closing position {token_id}")
+        _sell_entire_position(clob_client, position)
 
 
 if __name__ == "__main__":
