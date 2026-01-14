@@ -68,7 +68,9 @@ function printHeader() {
     console.log('     🤖 POLYMARKET COPY TRADING BOT - SETUP WIZARD');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`${colors.reset}\n`);
-    console.log(`${colors.yellow}This wizard will help you create your .env configuration file.${colors.reset}`);
+    console.log(
+        `${colors.yellow}This wizard will help you create your .env configuration file.${colors.reset}`
+    );
     console.log(`${colors.yellow}Press Ctrl+C at any time to cancel.\n${colors.reset}`);
 }
 
@@ -78,9 +80,7 @@ function printSection(title: string) {
 
 async function setupUserAddresses(): Promise<string> {
     printSection('STEP 1: TRADERS TO COPY');
-    console.log(
-        `${colors.cyan}Find top traders on:${colors.reset}`
-    );
+    console.log(`${colors.cyan}Find top traders on:${colors.reset}`);
     console.log('  • https://polymarket.com/leaderboard');
     console.log('  • https://predictfolio.com\n');
 
@@ -89,7 +89,7 @@ async function setupUserAddresses(): Promise<string> {
     console.log('  • Win rate above 55%');
     console.log('  • Recent trading activity\n');
 
-    let addresses: string[] = [];
+    const addresses: string[] = [];
     let addingMore = true;
 
     while (addingMore) {

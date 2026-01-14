@@ -301,10 +301,6 @@ export function parseTieredMultipliers(tiersStr: string): MultiplierTier[] {
         }
 
         const [range, multiplierStr] = parts;
-        if (!range || !multiplierStr) {
-            throw new Error(`Invalid tier format: "${tierDef}". Missing range or multiplier`);
-        }
-
         const multiplier = parseFloat(multiplierStr);
 
         if (isNaN(multiplier) || multiplier < 0) {
@@ -321,7 +317,12 @@ export function parseTieredMultipliers(tiersStr: string): MultiplierTier[] {
             tiers.push({ min, max: null, multiplier });
         } else if (range.includes('-')) {
             // Bounded range: "100-500"
-            const [minStr, maxStr] = range.split('-');
+            const parts = range.split('-');
+            if (parts.length !== 2 || !parts[0] || !parts[1]) {
+                throw new Error(`Invalid range format in tier "${tierDef}": "${range}"`);
+            }
+            const minStr = parts[0];
+            const maxStr = parts[1];
             const min = parseFloat(minStr);
             const max = parseFloat(maxStr);
 
@@ -345,9 +346,6 @@ export function parseTieredMultipliers(tiersStr: string): MultiplierTier[] {
     for (let i = 0; i < tiers.length - 1; i++) {
         const current = tiers[i];
         const next = tiers[i + 1];
-        if (!current || !next) {
-            continue;
-        }
 
         if (current.max === null) {
             throw new Error(`Tier with infinite upper bound must be last: ${current.min}+`);
@@ -379,8 +377,7 @@ export function getTradeMultiplier(config: CopyStrategyConfig, traderOrderSize: 
             }
         }
         // If no tier matches, use the last tier's multiplier
-        const lastTier = config.tieredMultipliers[config.tieredMultipliers.length - 1];
-        return lastTier?.multiplier ?? 1.0;
+        return config.tieredMultipliers[config.tieredMultipliers.length - 1].multiplier;
     }
 
     // Fall back to single multiplier if configured

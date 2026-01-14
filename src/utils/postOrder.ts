@@ -1,42 +1,104 @@
 import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
 import { ENV } from '../config/env';
-import { UserActivityInterface, UserPositionInterface } from '../interfaces/User';
+import { UserActivityInterface, UserPositionInterface, TradeSide } from '../interfaces/User';
 import { getUserActivityModel } from '../models/userHistory';
 import Logger from './logger';
 import { calculateOrderSize, getTradeMultiplier } from '../config/copyStrategy';
-import {
-    extractErrorMessage,
-    isInsufficientBalanceOrAllowanceError,
-} from './errorHelpers';
+import { TRADING_CONSTANTS, DB_FIELDS } from './constants';
+import { TradingError, InsufficientFundsError, normalizeError } from './errors';
 
 const RETRY_LIMIT = ENV.RETRY_LIMIT;
 const COPY_STRATEGY_CONFIG = ENV.COPY_STRATEGY_CONFIG;
+const MIN_ORDER_SIZE_USD = TRADING_CONSTANTS.MIN_ORDER_SIZE_USD;
+const MIN_ORDER_SIZE_TOKENS = TRADING_CONSTANTS.MIN_ORDER_SIZE_TOKENS;
 
-// Legacy parameters (for backward compatibility in SELL logic)
-const TRADE_MULTIPLIER = ENV.TRADE_MULTIPLIER;
-const COPY_PERCENTAGE = ENV.COPY_PERCENTAGE;
+/**
+ * Extract error message from order response
+ * @param response - Order response object
+ * @returns Error message or undefined
+ */
+const extractOrderError = (response: unknown): string | undefined => {
+    if (!response) {
+        return undefined;
+    }
 
-// Polymarket minimum order sizes
-const MIN_ORDER_SIZE_USD = 1.0; // Minimum order size in USD for BUY orders
-const MIN_ORDER_SIZE_TOKENS = 1.0; // Minimum order size in tokens for SELL/MERGE orders
+    if (typeof response === 'string') {
+        return response;
+    }
 
+    if (typeof response === 'object') {
+        const data = response as Record<string, unknown>;
+
+        const directError = data.error;
+        if (typeof directError === 'string') {
+            return directError;
+        }
+
+        if (typeof directError === 'object' && directError !== null) {
+            const nested = directError as Record<string, unknown>;
+            if (typeof nested.error === 'string') {
+                return nested.error;
+            }
+            if (typeof nested.message === 'string') {
+                return nested.message;
+            }
+        }
+
+        if (typeof data.errorMsg === 'string') {
+            return data.errorMsg;
+        }
+
+        if (typeof data.message === 'string') {
+            return data.message;
+        }
+    }
+
+    return undefined;
+};
+
+/**
+ * Check if error message indicates insufficient balance or allowance
+ * @param message - Error message to check
+ * @returns True if insufficient balance/allowance error
+ */
+const isInsufficientBalanceOrAllowanceError = (message: string | undefined): boolean => {
+    if (!message) {
+        return false;
+    }
+    const lower = message.toLowerCase();
+    return lower.includes('not enough balance') || lower.includes('allowance');
+};
+
+/**
+ * Post order to Polymarket based on trade condition
+ * @param clobClient - CLOB client instance
+ * @param condition - Trade condition: 'buy', 'sell', or 'merge'
+ * @param my_position - Current position in our wallet
+ * @param user_position - Current position in trader's wallet
+ * @param trade - Trade activity to execute
+ * @param my_balance - Our USDC balance
+ * @param user_balance - Trader's total portfolio value
+ * @param userAddress - Trader's wallet address
+ * @throws TradingError if order execution fails
+ */
 const postOrder = async (
     clobClient: ClobClient,
-    condition: string,
+    condition: 'buy' | 'sell' | 'merge',
     my_position: UserPositionInterface | undefined,
     user_position: UserPositionInterface | undefined,
     trade: UserActivityInterface,
     my_balance: number,
     user_balance: number,
     userAddress: string
-) => {
+): Promise<void> => {
     const UserActivity = getUserActivityModel(userAddress);
-    //Merge strategy
+    
+    // Merge strategy
     if (condition === 'merge') {
         Logger.info('Executing MERGE strategy...');
         if (!my_position) {
             Logger.warning('No position to merge');
-            await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+            await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
             return;
         }
         let remaining = my_position.size;
@@ -46,7 +108,7 @@ const postOrder = async (
             Logger.warning(
                 `Position size (${remaining.toFixed(2)} tokens) too small to merge - skipping`
             );
-            await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+            await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
             return;
         }
 
@@ -56,13 +118,13 @@ const postOrder = async (
             const orderBook = await clobClient.getOrderBook(trade.asset);
             if (!orderBook.bids || orderBook.bids.length === 0) {
                 Logger.warning('No bids available in order book');
-                await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
                 break;
             }
 
             const maxPriceBid = orderBook.bids.reduce((max, bid) => {
                 return parseFloat(bid.price) > parseFloat(max.price) ? bid : max;
-            }, orderBook.bids[0]);
+            }, orderBook.bids[0]!);
 
             Logger.info(`Best bid: ${maxPriceBid.size} @ $${maxPriceBid.price}`);
             let order_arges;
@@ -92,7 +154,7 @@ const postOrder = async (
                 );
                 remaining -= order_arges.amount;
             } else {
-                const errorMessage = extractErrorMessage(resp);
+                const errorMessage = extractOrderError(resp);
                 if (isInsufficientBalanceOrAllowanceError(errorMessage)) {
                     abortDueToFunds = true;
                     Logger.warning(
@@ -148,7 +210,7 @@ const postOrder = async (
             if (orderCalc.belowMinimum) {
                 Logger.warning(`💡 Increase COPY_SIZE or wait for larger trades`);
             }
-            await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+            await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
             return;
         }
 
@@ -162,18 +224,18 @@ const postOrder = async (
             const orderBook = await clobClient.getOrderBook(trade.asset);
             if (!orderBook.asks || orderBook.asks.length === 0) {
                 Logger.warning('No asks available in order book');
-                await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
                 break;
             }
 
             const minPriceAsk = orderBook.asks.reduce((min, ask) => {
                 return parseFloat(ask.price) < parseFloat(min.price) ? ask : min;
-            }, orderBook.asks[0]);
+            }, orderBook.asks[0]!);
 
             Logger.info(`Best ask: ${minPriceAsk.size} @ $${minPriceAsk.price}`);
-            if (parseFloat(minPriceAsk.price) - 0.05 > trade.price) {
+            if (parseFloat(minPriceAsk.price) - TRADING_CONSTANTS.MAX_PRICE_SLIPPAGE > trade.price) {
                 Logger.warning('Price slippage too high - skipping trade');
-                await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
                 break;
             }
 
@@ -184,7 +246,7 @@ const postOrder = async (
                 );
                 await UserActivity.updateOne(
                     { _id: trade._id },
-                    { bot: true, myBoughtSize: totalBoughtTokens }
+                    { [DB_FIELDS.BOT_EXECUTED]: true, [DB_FIELDS.MY_BOUGHT_SIZE]: totalBoughtTokens }
                 );
                 break;
             }
@@ -215,7 +277,7 @@ const postOrder = async (
                 );
                 remaining -= order_arges.amount;
             } else {
-                const errorMessage = extractErrorMessage(resp);
+                const errorMessage = extractOrderError(resp);
                 if (isInsufficientBalanceOrAllowanceError(errorMessage)) {
                     abortDueToFunds = true;
                     Logger.warning(
@@ -235,19 +297,27 @@ const postOrder = async (
         if (abortDueToFunds) {
             await UserActivity.updateOne(
                 { _id: trade._id },
-                { bot: true, botExcutedTime: RETRY_LIMIT, myBoughtSize: totalBoughtTokens }
+                {
+                    [DB_FIELDS.BOT_EXECUTED]: true,
+                    [DB_FIELDS.BOT_EXECUTED_TIME]: RETRY_LIMIT,
+                    [DB_FIELDS.MY_BOUGHT_SIZE]: totalBoughtTokens,
+                }
             );
             return;
         }
         if (retry >= RETRY_LIMIT) {
             await UserActivity.updateOne(
                 { _id: trade._id },
-                { bot: true, botExcutedTime: retry, myBoughtSize: totalBoughtTokens }
+                {
+                    [DB_FIELDS.BOT_EXECUTED]: true,
+                    [DB_FIELDS.BOT_EXECUTED_TIME]: retry,
+                    [DB_FIELDS.MY_BOUGHT_SIZE]: totalBoughtTokens,
+                }
             );
         } else {
             await UserActivity.updateOne(
                 { _id: trade._id },
-                { bot: true, myBoughtSize: totalBoughtTokens }
+                { [DB_FIELDS.BOT_EXECUTED]: true, [DB_FIELDS.MY_BOUGHT_SIZE]: totalBoughtTokens }
             );
         }
 
@@ -263,7 +333,7 @@ const postOrder = async (
         let remaining = 0;
         if (!my_position) {
             Logger.warning('No position to sell');
-            await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+            await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
             return;
         }
 
@@ -271,9 +341,9 @@ const postOrder = async (
         const previousBuys = await UserActivity.find({
             asset: trade.asset,
             conditionId: trade.conditionId,
-            side: 'BUY',
-            bot: true,
-            myBoughtSize: { $exists: true, $gt: 0 },
+            side: DB_FIELDS.SIDE_BUY,
+            [DB_FIELDS.BOT_EXECUTED]: true,
+            [DB_FIELDS.MY_BOUGHT_SIZE]: { $exists: true, $gt: 0 },
         }).exec();
 
         const totalBoughtTokens = previousBuys.reduce(
@@ -336,7 +406,7 @@ const postOrder = async (
                 `❌ Cannot execute: Sell amount ${remaining.toFixed(2)} tokens below minimum (${MIN_ORDER_SIZE_TOKENS} token)`
             );
             Logger.warning(`💡 This happens when position sizes are too small or mismatched`);
-            await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+            await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
             return;
         }
 
@@ -356,14 +426,14 @@ const postOrder = async (
         while (remaining > 0 && retry < RETRY_LIMIT) {
             const orderBook = await clobClient.getOrderBook(trade.asset);
             if (!orderBook.bids || orderBook.bids.length === 0) {
-                await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
                 Logger.warning('No bids available in order book');
                 break;
             }
 
             const maxPriceBid = orderBook.bids.reduce((max, bid) => {
                 return parseFloat(bid.price) > parseFloat(max.price) ? bid : max;
-            }, orderBook.bids[0]);
+            }, orderBook.bids[0]!);
 
             Logger.info(`Best bid: ${maxPriceBid.size} @ $${maxPriceBid.price}`);
 
@@ -372,7 +442,7 @@ const postOrder = async (
                 Logger.info(
                     `Remaining amount (${remaining.toFixed(2)} tokens) below minimum - completing trade`
                 );
-                await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
                 break;
             }
 
@@ -383,7 +453,7 @@ const postOrder = async (
                 Logger.info(
                     `Order amount (${sellAmount.toFixed(2)} tokens) below minimum - completing trade`
                 );
-                await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
                 break;
             }
 
@@ -405,7 +475,7 @@ const postOrder = async (
                 );
                 remaining -= order_arges.amount;
             } else {
-                const errorMessage = extractErrorMessage(resp);
+                const errorMessage = extractOrderError(resp);
                 if (isInsufficientBalanceOrAllowanceError(errorMessage)) {
                     abortDueToFunds = true;
                     Logger.warning(
@@ -433,11 +503,11 @@ const postOrder = async (
                     {
                         asset: trade.asset,
                         conditionId: trade.conditionId,
-                        side: 'BUY',
-                        bot: true,
-                        myBoughtSize: { $exists: true, $gt: 0 },
+                        side: DB_FIELDS.SIDE_BUY,
+                        [DB_FIELDS.BOT_EXECUTED]: true,
+                        [DB_FIELDS.MY_BOUGHT_SIZE]: { $exists: true, $gt: 0 },
                     },
-                    { $set: { myBoughtSize: 0 } }
+                    { $set: { [DB_FIELDS.MY_BOUGHT_SIZE]: 0 } }
                 );
                 Logger.info(
                     `🧹 Cleared purchase tracking (sold ${(sellPercentage * 100).toFixed(1)}% of position)`
@@ -448,7 +518,7 @@ const postOrder = async (
                     const newSize = (buy.myBoughtSize || 0) * (1 - sellPercentage);
                     await UserActivity.updateOne(
                         { _id: buy._id },
-                        { $set: { myBoughtSize: newSize } }
+                        { $set: { [DB_FIELDS.MY_BOUGHT_SIZE]: newSize } }
                     );
                 }
                 Logger.info(
@@ -460,14 +530,17 @@ const postOrder = async (
         if (abortDueToFunds) {
             await UserActivity.updateOne(
                 { _id: trade._id },
-                { bot: true, botExcutedTime: RETRY_LIMIT }
+                { [DB_FIELDS.BOT_EXECUTED]: true, [DB_FIELDS.BOT_EXECUTED_TIME]: RETRY_LIMIT }
             );
             return;
         }
         if (retry >= RETRY_LIMIT) {
-            await UserActivity.updateOne({ _id: trade._id }, { bot: true, botExcutedTime: retry });
+            await UserActivity.updateOne(
+                { _id: trade._id },
+                { [DB_FIELDS.BOT_EXECUTED]: true, [DB_FIELDS.BOT_EXECUTED_TIME]: retry }
+            );
         } else {
-            await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+            await UserActivity.updateOne({ _id: trade._id }, { [DB_FIELDS.BOT_EXECUTED]: true });
         }
     } else {
         Logger.error(`Unknown condition: ${condition}`);

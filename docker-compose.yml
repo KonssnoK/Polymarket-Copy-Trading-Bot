@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
     bot:
@@ -16,23 +15,18 @@ services:
         volumes:
             # Mount .env file (optional, if not using env_file)
             - ./.env:/app/.env:ro
-        healthcheck:
-            test:
-                [
-                    'CMD',
-                    'node',
-                    '-e',
-                    "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})",
-                ]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-            start_period: 40s
 
     mongodb:
         image: mongo:7
         container_name: polymarket-mongodb
         restart: unless-stopped
+        command:
+            [
+                "mongod",
+                "--quiet",
+                "--setParameter",
+                "logComponentVerbosity={\"verbosity\":0,\"network\":{\"verbosity\":0},\"accessControl\":{\"verbosity\":0},\"command\":{\"verbosity\":0}}"
+            ]
         ports:
             - '27017:27017'
         volumes:

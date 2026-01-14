@@ -143,16 +143,80 @@ class Logger {
 
     static startup(traders: string[], myWallet: string) {
         console.log('\n');
-        // ASCII Art Logo with gradient colors
-        console.log(chalk.cyan('  ____       _        ____                 '));
-        console.log(chalk.cyan(' |  _ \\ ___ | |_   _ / ___|___  _ __  _   _ '));
-        console.log(chalk.cyan.bold(" | |_) / _ \\| | | | | |   / _ \\| '_ \\| | | |"));
-        console.log(chalk.magenta.bold(' |  __/ (_) | | |_| | |__| (_) | |_) | |_| |'));
-        console.log(chalk.magenta(' |_|   \\___/|_|\\__, |\\____\\___/| .__/ \\__, |'));
-        console.log(chalk.magenta('               |___/            |_|    |___/ '));
-        console.log(chalk.gray('               Copy the best, automate success\n'));
+        // // ASCII Art Logo with gradient colors
+        // console.log(chalk.cyan('  ____       _        ____                 '));
+        // console.log(chalk.cyan(' |  _ \\ ___ | |_   _ / ___|___  _ __  _   _ '));
+        // console.log(chalk.cyan.bold(" | |_) / _ \\| | | | | |   / _ \\| '_ \\| | | |"));
+        // console.log(chalk.magenta.bold(' |  __/ (_) | | |_| | |__| (_) | |_) | |_| |'));
+        // console.log(chalk.magenta(' |_|   \\___/|_|\\__, |\\____\\___/| .__/ \\__, |'));
+        // console.log(chalk.magenta('               |___/            |_|    |___/ '));
+        // console.log(chalk.gray('               Copy the best, automate success\n'));
 
-        console.log(chalk.cyan('━'.repeat(70)));
+        // console.log(chalk.cyan('━'.repeat(70)));
+
+
+        // PolyCopy V3 - Modern ASCII Art Logo
+        // Pure console.log with ANSI colors - No dependencies!
+
+        // Modern color palette - Clean and professional
+        const c = {
+            reset: '\x1b[0m',
+            bold: '\x1b[1m',
+            dim: '\x1b[2m',
+            
+            // Primary brand colors
+            cyan: '\x1b[38;5;51m',      // Bright cyan
+            blue: '\x1b[38;5;39m',      // Electric blue
+            purple: '\x1b[38;5;141m',   // Soft purple
+            magenta: '\x1b[38;5;213m',  // Pink magenta
+            
+            // Accent colors
+            green: '\x1b[38;5;48m',     // Mint green
+            yellow: '\x1b[38;5;221m',   // Warm yellow
+            orange: '\x1b[38;5;215m',   // Soft orange
+            
+            // UI colors
+            gray: '\x1b[38;5;246m',     // Soft gray
+            white: '\x1b[38;5;255m',    // Pure white
+            border: '\x1b[38;5;69m',    // Slate blue
+        };
+
+        console.log('\n');
+
+        // Top border with gradient
+        console.log(c.border + c.bold + '╔══════════════════════════════════════════════════════════════════╗' + c.reset);
+        console.log(c.border + '║' + c.reset + '                                                                  ' + c.border + '║' + c.reset);
+
+        // Logo with smooth gradient: cyan → blue → purple → magenta
+        console.log(c.border + '║' + c.reset + c.cyan + c.bold + '          ' + '  ____       ' + c.blue + '_        ' + c.purple + '____                 ' + c.magenta + '             ' + c.border + '║' + c.reset);
+        console.log(c.border + '║' + c.reset + c.cyan + c.bold + '          ' + ' |  _ \\ ___ ' + c.blue + '| |_   _ ' + c.purple + '/ ___|___  ' + c.magenta + '_ __  _   _ ' + '            ' + c.border + '║' + c.reset);
+        console.log(c.border + '║' + c.reset + c.cyan + c.bold + '          ' + ' | |_) / _ \\' + c.blue + '| | | | | ' + c.purple + '|   / _ \\' + c.magenta + '| \'_ \\| | | |' + '            ' + c.border + '║' + c.reset);
+        console.log(c.border + '║' + c.reset + c.blue + c.bold + '          ' + ' |  __/ (_) ' + c.purple + '| | |_| | ' + c.magenta + '|__| (_) | |_) | |_| |' + '            ' + c.border + '║' + c.reset);
+        console.log(c.border + '║' + c.reset + c.blue + c.bold + '          ' + ' |_|   \\___/' + c.purple + '|_|\\__, |' + c.magenta + '\\____\\___/| .__/ \\__, |' + '            ' + c.border + '║' + c.reset);
+        console.log(c.border + '║' + c.reset + c.purple + '          ' + '               ' + c.magenta + '|___/            |_|    |___/ ' + '           ' + c.border + '║' + c.reset);
+
+        console.log(c.border + '║' + c.reset + '                                                                  ' + c.border + '║' + c.reset);
+
+        // V3 Badge - Modern pill design
+        console.log(c.border + '║' + c.reset + c.gray + '                            ' + c.cyan + c.bold + '╭─────────╮' + c.reset + '                           ' + c.border + '║' + c.reset);
+        console.log(c.border + '║' + c.reset + c.gray + '                            ' + c.cyan + c.bold + '│' + c.white + c.bold + '    V3   ' + c.cyan + '│' + c.reset + '                           ' + c.border + '║' + c.reset);
+        console.log(c.border + '║' + c.reset + c.gray + '                            ' + c.cyan + c.bold + '╰─────────╯' + c.reset + '                           ' + c.border + '║' + c.reset);
+
+        console.log(c.border + '║' + c.reset + '                                                                  ' + c.border + '║' + c.reset);
+
+        // Tagline with icon
+        console.log(c.border + '║' + c.reset + c.yellow + c.bold + '              ⚡ Copy the best, automate success ⚡' + c.reset + '               ' + c.border + '║' + c.reset);
+
+        console.log(c.border + '║' + c.reset + '                                                                  ' + c.border + '║' + c.reset);
+        console.log(c.border + c.bold + '╚══════════════════════════════════════════════════════════════════╝' + c.reset);
+
+        // Clean separator line
+        console.log(c.border + '━'.repeat(68) + c.reset);
+
+        console.log('\n');
+
+
+
         console.log(chalk.cyan('📊 Tracking Traders:'));
         traders.forEach((address, index) => {
             console.log(chalk.gray(`   ${index + 1}. ${address}`));
@@ -267,7 +331,7 @@ class Logger {
     ) {
         console.log('\n' + chalk.cyan("📈 TRADERS YOU'RE COPYING"));
         traders.forEach((address, index) => {
-            const count = positionCounts[index];
+            const count = positionCounts[index] ?? 0;
             const countStr =
                 count > 0
                     ? chalk.green(`${count} position${count > 1 ? 's' : ''}`)

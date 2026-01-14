@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv';
 import { CopyStrategy, CopyStrategyConfig, parseTieredMultipliers } from './copyStrategy';
+import { ConfigurationError } from '../utils/errors';
 dotenv.config();
 
 /**
@@ -38,7 +39,7 @@ const validateRequiredEnv = (): void => {
         console.error('   1. Run the setup wizard: npm run setup');
         console.error('   2. Or manually create .env file with all required variables\n');
         console.error('📖 See docs/QUICK_START.md for detailed instructions\n');
-        throw new Error(
+        throw new ConfigurationError(
             `Missing required environment variables: ${missing.join(', ')}`
         );
     }
@@ -57,7 +58,7 @@ const validateAddresses = (): void => {
         console.error('   • Copy your wallet address from MetaMask');
         console.error('   • Make sure it starts with 0x');
         console.error('   • Should be exactly 42 characters long\n');
-        throw new Error(
+        throw new ConfigurationError(
             `Invalid PROXY_WALLET address format: ${process.env.PROXY_WALLET}`
         );
     }
@@ -70,7 +71,7 @@ const validateAddresses = (): void => {
         console.error(`Current value: ${process.env.USDC_CONTRACT_ADDRESS}`);
         console.error('Default value: 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174\n');
         console.error('⚠️  Unless you know what you\'re doing, use the default value!\n');
-        throw new Error(
+        throw new ConfigurationError(
             `Invalid USDC_CONTRACT_ADDRESS format: ${process.env.USDC_CONTRACT_ADDRESS}`
         );
     }
@@ -82,35 +83,35 @@ const validateAddresses = (): void => {
 const validateNumericConfig = (): void => {
     const fetchInterval = parseInt(process.env.FETCH_INTERVAL || '1', 10);
     if (isNaN(fetchInterval) || fetchInterval <= 0) {
-        throw new Error(
+        throw new ConfigurationError(
             `Invalid FETCH_INTERVAL: ${process.env.FETCH_INTERVAL}. Must be a positive integer.`
         );
     }
 
     const retryLimit = parseInt(process.env.RETRY_LIMIT || '3', 10);
     if (isNaN(retryLimit) || retryLimit < 1 || retryLimit > 10) {
-        throw new Error(
+        throw new ConfigurationError(
             `Invalid RETRY_LIMIT: ${process.env.RETRY_LIMIT}. Must be between 1 and 10.`
         );
     }
 
     const tooOldTimestamp = parseInt(process.env.TOO_OLD_TIMESTAMP || '24', 10);
     if (isNaN(tooOldTimestamp) || tooOldTimestamp < 1) {
-        throw new Error(
+        throw new ConfigurationError(
             `Invalid TOO_OLD_TIMESTAMP: ${process.env.TOO_OLD_TIMESTAMP}. Must be a positive integer (hours).`
         );
     }
 
     const requestTimeout = parseInt(process.env.REQUEST_TIMEOUT_MS || '10000', 10);
     if (isNaN(requestTimeout) || requestTimeout < 1000) {
-        throw new Error(
+        throw new ConfigurationError(
             `Invalid REQUEST_TIMEOUT_MS: ${process.env.REQUEST_TIMEOUT_MS}. Must be at least 1000ms.`
         );
     }
 
     const networkRetryLimit = parseInt(process.env.NETWORK_RETRY_LIMIT || '3', 10);
     if (isNaN(networkRetryLimit) || networkRetryLimit < 1 || networkRetryLimit > 10) {
-        throw new Error(
+        throw new ConfigurationError(
             `Invalid NETWORK_RETRY_LIMIT: ${process.env.NETWORK_RETRY_LIMIT}. Must be between 1 and 10.`
         );
     }
@@ -125,7 +126,7 @@ const validateUrls = (): void => {
         console.error(`Current value: ${process.env.CLOB_HTTP_URL}`);
         console.error('Default value: https://clob.polymarket.com/\n');
         console.error('⚠️  Use the default value unless you have a specific reason to change it!\n');
-        throw new Error(
+        throw new ConfigurationError(
             `Invalid CLOB_HTTP_URL: ${process.env.CLOB_HTTP_URL}. Must be a valid HTTP/HTTPS URL.`
         );
     }
@@ -135,7 +136,7 @@ const validateUrls = (): void => {
         console.error(`Current value: ${process.env.CLOB_WS_URL}`);
         console.error('Default value: wss://ws-subscriptions-clob.polymarket.com/ws\n');
         console.error('⚠️  Use the default value unless you have a specific reason to change it!\n');
-        throw new Error(
+        throw new ConfigurationError(
             `Invalid CLOB_WS_URL: ${process.env.CLOB_WS_URL}. Must be a valid WebSocket URL (ws:// or wss://).`
         );
     }
@@ -149,7 +150,9 @@ const validateUrls = (): void => {
         console.error('   • Alchemy: https://www.alchemy.com');
         console.error('   • Ankr:    https://www.ankr.com\n');
         console.error('Example: https://polygon-mainnet.infura.io/v3/YOUR_PROJECT_ID\n');
-        throw new Error(`Invalid RPC_URL: ${process.env.RPC_URL}. Must be a valid HTTP/HTTPS URL.`);
+        throw new ConfigurationError(
+            `Invalid RPC_URL: ${process.env.RPC_URL}. Must be a valid HTTP/HTTPS URL.`
+        );
     }
 
     if (process.env.MONGO_URI && !process.env.MONGO_URI.startsWith('mongodb')) {
@@ -163,7 +166,7 @@ const validateUrls = (): void => {
         console.error('   4. Whitelist IP: 0.0.0.0/0 (or your IP)');
         console.error('   5. Get connection string from "Connect" button\n');
         console.error('Example: mongodb+srv://username:password@cluster.mongodb.net/database\n');
-        throw new Error(
+        throw new ConfigurationError(
             `Invalid MONGO_URI: ${process.env.MONGO_URI}. Must be a valid MongoDB connection string.`
         );
     }
@@ -196,7 +199,9 @@ const parseUserAddresses = (input: string): string[] => {
                         console.error('   • Polymarket Leaderboard: https://polymarket.com/leaderboard');
                         console.error('   • Predictfolio: https://predictfolio.com\n');
                         console.error('Example: USER_ADDRESSES=\'0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b\'\n');
-                        throw new Error(`Invalid Ethereum address in USER_ADDRESSES: ${addr}`);
+                        throw new ConfigurationError(
+                            `Invalid Ethereum address in USER_ADDRESSES: ${addr}`
+                        );
                     }
                 }
                 return addresses;
@@ -205,7 +210,7 @@ const parseUserAddresses = (input: string): string[] => {
             if (e instanceof Error && e.message.includes('Invalid Ethereum address')) {
                 throw e;
             }
-            throw new Error(
+            throw new ConfigurationError(
                 `Invalid JSON format for USER_ADDRESSES: ${e instanceof Error ? e.message : String(e)}`
             );
         }
@@ -225,7 +230,9 @@ const parseUserAddresses = (input: string): string[] => {
             console.error('   • Polymarket Leaderboard: https://polymarket.com/leaderboard');
             console.error('   • Predictfolio: https://predictfolio.com\n');
             console.error('Example: USER_ADDRESSES=\'0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b\'\n');
-            throw new Error(`Invalid Ethereum address in USER_ADDRESSES: ${addr}`);
+                        throw new ConfigurationError(
+                            `Invalid Ethereum address in USER_ADDRESSES: ${addr}`
+                        );
         }
     }
     return addresses;
@@ -263,7 +270,9 @@ const parseCopyStrategy = (): CopyStrategyConfig => {
                 config.tieredMultipliers = parseTieredMultipliers(process.env.TIERED_MULTIPLIERS);
                 console.log(`✓ Loaded ${config.tieredMultipliers.length} tiered multipliers`);
             } catch (error) {
-                throw new Error(`Failed to parse TIERED_MULTIPLIERS: ${error instanceof Error ? error.message : String(error)}`);
+                throw new ConfigurationError(
+                    `Failed to parse TIERED_MULTIPLIERS: ${error instanceof Error ? error.message : String(error)}`
+                );
             }
         } else if (tradeMultiplier !== 1.0) {
             // If using legacy single multiplier, store it
@@ -308,7 +317,9 @@ const parseCopyStrategy = (): CopyStrategyConfig => {
             config.tieredMultipliers = parseTieredMultipliers(process.env.TIERED_MULTIPLIERS);
             console.log(`✓ Loaded ${config.tieredMultipliers.length} tiered multipliers`);
         } catch (error) {
-            throw new Error(`Failed to parse TIERED_MULTIPLIERS: ${error instanceof Error ? error.message : String(error)}`);
+            throw new ConfigurationError(
+                `Failed to parse TIERED_MULTIPLIERS: ${error instanceof Error ? error.message : String(error)}`
+            );
         }
     } else if (process.env.TRADE_MULTIPLIER) {
         // Fall back to single multiplier if no tiers configured

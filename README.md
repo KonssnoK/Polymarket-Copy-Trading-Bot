@@ -24,7 +24,7 @@
 - [How It Works](#-how-it-works)
 - [Features](#-features)
 - [Quick Start](#-quick-start)
-- [Configuration](#-configuration)
+- [Configuration](#configuration)
 - [Docker Deployment](#-docker-deployment)
 - [Documentation](#-documentation)
 - [Frequently Asked Questions](#-frequently-asked-questions)
@@ -56,7 +56,11 @@ Copy trading on Polymarket allows you to automatically mirror the trades of succ
 
 <div align="center">
 
-<img width="995" height="691" alt="Polymarket Copy Trading Bot Workflow - Automated Trading Process Diagram showing trader selection, monitoring, calculation, execution, and tracking" src="https://github.com/user-attachments/assets/79715c7a-de2c-4033-81e6-b2288963ec9b" />
+<img width="1252" height="947" alt="Polymarket Copy Trading Bot Workflow - Automated Trading Process Diagram showing trader selection, monitoring, calculation, execution, and tracking" src="https://github.com/user-attachments/assets/2d1056aa-a815-4cde-914b-14a563af0533" />
+
+<img width="1337" height="980" alt="Polymarket Copy Trading Bot Workflow - Automated Trading Process Diagram showing trader selection, monitoring, calculation, execution, and tracking" src="https://github.com/user-attachments/assets/558a61b2-1db2-4ed6-ab74-2e2aa7171fdb" />
+
+<img width="1387" height="908" alt="Polymarket Copy Trading Bot Workflow - Automated Trading Process Diagram showing trader selection, monitoring, calculation, execution, and tracking" src="https://github.com/user-attachments/assets/945a2de8-2bef-49c5-be4f-e046e8556896" />
 
 </div>
 
@@ -158,6 +162,7 @@ npm start
 
 ---
 
+<a id="configuration"></a>
 ## ⚙️ Configuration
 
 ### Essential Environment Variables
@@ -308,23 +313,11 @@ An advanced version with **Real-Time Data Stream (RTDS)** monitoring is availabl
 - **Lower API Load**: More efficient data streaming architecture
 - **Superior Performance**: Enhanced copy trading (copytrading) capabilities
 
-<!-- <div align="center">
-
-<img width="680" height="313" alt="Version 2 RTDS Features" src="https://github.com/user-attachments/assets/d868f9f2-a1dd-4bfe-a76e-d8cbdfbd8497" />
-
-</div> -->
-
 ---
 
 ## 🛠️ High-Performance Rust Trading Bot
 
 A high-performance trading bot for Polymarket built with **Rust** is also available for advanced users seeking maximum performance.
-
-<div align="center">
-
-<img width="1917" height="942" alt="Rust Trading Bot for Polymarket - High Performance Automated Trading Interface" src="https://github.com/user-attachments/assets/08a5c962-7f8b-4097-98b6-7a457daa37c9" />
-
-[Watch Demo Video](https://www.youtube.com/watch?v=0uUI_ht_2eY)
 
 </div>
 
