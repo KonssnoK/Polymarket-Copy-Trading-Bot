@@ -136,7 +136,9 @@ def _parse_user_addresses(value: str) -> list[str]:
     addresses = [addr.lower().strip() for addr in trimmed.split(",") if addr.strip()]
     for addr in addresses:
         if not _is_valid_eth_address(addr):
-        raise ConfigurationError(f"Invalid Ethereum address in USER_ADDRESSES: {addr}")
+            raise ConfigurationError(
+                f"Invalid Ethereum address in USER_ADDRESSES: {addr}"
+            )
     return addresses
 
 

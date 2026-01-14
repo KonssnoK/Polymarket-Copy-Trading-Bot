@@ -225,6 +225,10 @@ def parse_tiered_multipliers(tiers_str: str) -> List[MultiplierTier]:
             )
 
         range_part, multiplier_str = parts
+        if not range_part or not multiplier_str:
+            raise ValueError(
+                f"Invalid tier format: '{tier_def}'. Missing range or multiplier"
+            )
         multiplier = float(multiplier_str)
         if multiplier < 0:
             raise ValueError(
@@ -237,7 +241,13 @@ def parse_tiered_multipliers(tiers_str: str) -> List[MultiplierTier]:
                 raise ValueError(f"Invalid minimum value in tier '{tier_def}'")
             tiers.append(MultiplierTier(min=min_val, max=None, multiplier=multiplier))
         elif "-" in range_part:
-            min_str, max_str = range_part.split("-", 1)
+            range_parts = range_part.split("-")
+            if len(range_parts) != 2 or not range_parts[0] or not range_parts[1]:
+                raise ValueError(
+                    f"Invalid range format in tier '{tier_def}': '{range_part}'"
+                )
+            min_str = range_parts[0]
+            max_str = range_parts[1]
             min_val = float(min_str)
             max_val = float(max_str)
             if min_val < 0 or max_val <= min_val:
