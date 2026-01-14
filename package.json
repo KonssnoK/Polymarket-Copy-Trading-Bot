@@ -1,27 +1,13 @@
 {
-    "name": "polymarket-copy-trading-bot",
+    "name": "polymarket_copy_trading_bot",
     "version": "1.0.0",
-    "description": "Best free open-source Polymarket copy trading bot - Automatically mirror top traders on Polymarket prediction markets with intelligent position sizing, real-time execution, and 24/7 monitoring. TypeScript trading bot for Polygon blockchain.", 
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
-    "engines": {
-        "node": ">=18.0.0",
-        "npm": ">=9.0.0"
-    },
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/earthskyorg/polymarket-copy-trading-bot.git"
-    },
-    "bugs": {
-        "url": "https://github.com/earthskyorg/polymarket-copy-trading-bot/issues"
-    },
-    "homepage": "https://github.com/earthskyorg/polymarket-copy-trading-bot#readme",
+    "main": "index.js",
     "scripts": {
         "postinstall": "node src/scripts/postinstall.js",
         "help": "ts-node src/scripts/help.ts",
         "setup": "ts-node src/scripts/setup.ts",
-        "build": "tsc || exit 0",
-        "build:strict": "tsc",
+        "setup-mongodb": "ts-node src/scripts/setupMongoDB.ts",
+        "build": "tsc",
         "start": "node dist/index.js",
         "dev": "ts-node src/index.ts",
         "check-allowance": "ts-node src/scripts/checkAllowance.ts",
@@ -58,41 +44,11 @@
         "test:watch": "jest --watch",
         "test:coverage": "jest --coverage"
     },
-    "keywords": [
-        "polymarket",
-        "polymarket-bot",
-        "polymarket-trading-bot",
-        "polymarket-copy-trading",
-        "polymarket-automated-trading",
-        "copy-trading",
-        "copy-trading-bot",
-        "trading-bot",
-        "automated-trading",
-        "automated-trading-bot",
-        "prediction-markets",
-        "prediction-market-bot",
-        "defi",
-        "defi-trading",
-        "ethereum",
-        "polygon",
-        "polygon-blockchain",
-        "typescript",
-        "typescript-trading-bot",
-        "blockchain",
-        "blockchain-trading",
-        "mirror-trading",
-        "social-trading",
-        "algorithmic-trading",
-        "crypto-trading-bot",
-        "open-source-trading-bot",
-        "free-trading-bot"
-    ],
-    "author": {
-        "name": "earthskyorg",
-        "url": "https://github.com/earthskyorg"
-    },
+    "keywords": [],
+    "author": "Novus-Tech-LLC",
     "license": "ISC",
     "type": "commonjs",
+    "description": "",
     "devDependencies": {
         "@eslint/js": "^9.19.0",
         "@types/jest": "^29.5.14",

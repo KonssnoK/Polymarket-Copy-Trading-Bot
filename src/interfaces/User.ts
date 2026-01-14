@@ -1,17 +1,30 @@
 import mongoose from 'mongoose';
 
+/**
+ * Trade side type
+ */
+export type TradeSide = 'BUY' | 'SELL';
+
+/**
+ * Activity type
+ */
+export type ActivityType = 'TRADE' | 'REDEEM' | 'MERGE' | string;
+
+/**
+ * User activity interface representing a trade or activity
+ */
 export interface UserActivityInterface {
     _id: mongoose.Types.ObjectId;
     proxyWallet: string;
     timestamp: number;
     conditionId: string;
-    type: string;
+    type: ActivityType;
     size: number;
     usdcSize: number;
     transactionHash: string;
     price: number;
     asset: string;
-    side: string;
+    side: TradeSide;
     outcomeIndex: number;
     title: string;
     slug: string;
@@ -25,9 +38,13 @@ export interface UserActivityInterface {
     profileImageOptimized: string;
     bot: boolean;
     botExcutedTime: number;
-    myBoughtSize?: number; // Tracks actual tokens we bought
+    /** Tracks actual tokens we bought for this trade */
+    myBoughtSize?: number;
 }
 
+/**
+ * User position interface representing an open position
+ */
 export interface UserPositionInterface {
     _id: mongoose.Types.ObjectId;
     proxyWallet: string;
@@ -55,4 +72,32 @@ export interface UserPositionInterface {
     oppositeAsset: string;
     endDate: string;
     negativeRisk: boolean;
+}
+
+/**
+ * Order book entry interface
+ */
+export interface OrderBookEntry {
+    price: string;
+    size: string;
+}
+
+/**
+ * Order book interface
+ */
+export interface OrderBook {
+    bids: OrderBookEntry[];
+    asks: OrderBookEntry[];
+}
+
+/**
+ * Position summary for display
+ */
+export interface PositionSummary {
+    title: string;
+    outcome: string;
+    currentValue: number;
+    percentPnl: number;
+    avgPrice: number;
+    curPrice: number;
 }

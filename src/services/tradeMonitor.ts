@@ -2,12 +2,8 @@ import { ENV } from '../config/env';
 import { getUserActivityModel, getUserPositionModel } from '../models/userHistory';
 import fetchData from '../utils/fetchData';
 import Logger from '../utils/logger';
-import {
-    calculatePositionStats,
-    fetchMyPositionsAndBalance,
-    fetchUserPositionsAndBalance,
-} from '../utils/positionHelpers';
-import { formatError } from '../utils/errorHelpers';
+import { POLYMARKET_API, DB_FIELDS, TIME_CONSTANTS } from '../utils/constants';
+import { UserPositionInterface, UserActivityInterface } from '../interfaces/User';
 
 const USER_ADDRESSES = ENV.USER_ADDRESSES;
 const TOO_OLD_TIMESTAMP = ENV.TOO_OLD_TIMESTAMP;
@@ -17,29 +13,19 @@ if (!USER_ADDRESSES || USER_ADDRESSES.length === 0) {
     throw new Error('USER_ADDRESSES is not defined or empty');
 }
 
-/**
- * User model configuration
- */
-interface UserModelConfig {
-    address: string;
-    UserActivity: ReturnType<typeof getUserActivityModel>;
-    UserPosition: ReturnType<typeof getUserPositionModel>;
-}
-
 // Create activity and position models for each user
-const userModels: UserModelConfig[] = USER_ADDRESSES.map((address) => ({
+const userModels = USER_ADDRESSES.map((address) => ({
     address,
     UserActivity: getUserActivityModel(address),
     UserPosition: getUserPositionModel(address),
 }));
 
 /**
- * Initialize and display position information
+ * Initialize trade monitor and display current status
  */
 const init = async (): Promise<void> => {
-    // Count trades for each trader
     const counts: number[] = [];
-    for (const { UserActivity } of userModels) {
+    for (const { address, UserActivity } of userModels) {
         const count = await UserActivity.countDocuments();
         counts.push(count);
     }
@@ -48,191 +34,98 @@ const init = async (): Promise<void> => {
 
     // Show your own positions first
     try {
-        const { positions: myPositions, usdcBalance } = await fetchMyPositionsAndBalance();
+        const myPositionsUrl = `${POLYMARKET_API.DATA_API_BASE}${POLYMARKET_API.POSITIONS_ENDPOINT}?user=${ENV.PROXY_WALLET}`;
+        const myPositions = await fetchData<UserPositionInterface[]>(myPositionsUrl);
 
-        if (myPositions.length > 0) {
-            const stats = calculatePositionStats(myPositions);
+        // Get current USDC balance
+        const getMyBalance = (await import('../utils/getMyBalance')).default;
+        const currentBalance = await getMyBalance(ENV.PROXY_WALLET);
+
+        if (Array.isArray(myPositions) && myPositions.length > 0) {
+            // Calculate your overall profitability and initial investment
+            let totalValue = 0;
+            let initialValue = 0;
+            let weightedPnl = 0;
+            myPositions.forEach((pos: UserPositionInterface) => {
+                const value = pos.currentValue || 0;
+                const initial = pos.initialValue || 0;
+                const pnl = pos.percentPnl || 0;
+                totalValue += value;
+                initialValue += initial;
+                weightedPnl += value * pnl;
+            });
+            const myOverallPnl = totalValue > 0 ? weightedPnl / totalValue : 0;
 
             // Get top 5 positions by profitability (PnL)
             const myTopPositions = myPositions
-                .sort((a, b) => (b.percentPnl ?? 0) - (a.percentPnl ?? 0))
-                .slice(0, 5)
-                .map((p) => ({
-                    outcome: p.outcome,
-                    title: p.title,
-                    currentValue: p.currentValue ?? 0,
-                    percentPnl: p.percentPnl ?? 0,
-                    avgPrice: p.avgPrice ?? 0,
-                    curPrice: p.curPrice ?? 0,
-                }));
+                .sort((a, b) => (b.percentPnl || 0) - (a.percentPnl || 0))
+                .slice(0, 5);
 
             Logger.clearLine();
             Logger.myPositions(
                 ENV.PROXY_WALLET,
                 myPositions.length,
                 myTopPositions,
-                stats.overallPnl,
-                stats.totalValue,
-                stats.initialValue,
-                usdcBalance
+                myOverallPnl,
+                totalValue,
+                initialValue,
+                currentBalance
             );
         } else {
             Logger.clearLine();
-            Logger.myPositions(ENV.PROXY_WALLET, 0, [], 0, 0, 0, usdcBalance);
+            Logger.myPositions(ENV.PROXY_WALLET, 0, [], 0, 0, 0, currentBalance);
         }
     } catch (error) {
-        Logger.error(`Failed to fetch your positions: ${formatError(error)}`);
+        Logger.error(`Failed to fetch your positions: ${error}`);
     }
 
     // Show current positions count with details for traders you're copying
     const positionCounts: number[] = [];
-    const positionDetails: Array<Array<Record<string, unknown>>> = [];
+    const positionDetails: UserPositionInterface[][] = [];
     const profitabilities: number[] = [];
-
-    for (const { UserPosition } of userModels) {
+    for (const { address, UserPosition } of userModels) {
         const positions = await UserPosition.find().exec();
         positionCounts.push(positions.length);
 
-        const stats = calculatePositionStats(positions);
-        profitabilities.push(stats.overallPnl);
+        // Calculate overall profitability (weighted average by current value)
+        let totalValue = 0;
+        let weightedPnl = 0;
+        positions.forEach((pos) => {
+            const value = pos.currentValue || 0;
+            const pnl = pos.percentPnl || 0;
+            totalValue += value;
+            weightedPnl += value * pnl;
+        });
+        const overallPnl = totalValue > 0 ? weightedPnl / totalValue : 0;
+        profitabilities.push(overallPnl);
 
         // Get top 3 positions by profitability (PnL)
         const topPositions = positions
-            .sort((a, b) => (b.percentPnl ?? 0) - (a.percentPnl ?? 0))
+            .sort((a, b) => (b.percentPnl || 0) - (a.percentPnl || 0))
             .slice(0, 3)
-            .map((p) => ({
-                outcome: p.outcome,
-                title: p.title,
-                currentValue: p.currentValue ?? 0,
-                percentPnl: p.percentPnl ?? 0,
-                avgPrice: p.avgPrice ?? 0,
-                curPrice: p.curPrice ?? 0,
-            }));
+            .map((p) => {
+                const obj = p.toObject();
+                if (obj.proxyWallet && typeof obj.proxyWallet === 'string') {
+                    return obj as UserPositionInterface;
+                }
+                return null;
+            })
+            .filter((p): p is UserPositionInterface => p !== null);
         positionDetails.push(topPositions);
     }
-
     Logger.clearLine();
     Logger.tradersPositions(USER_ADDRESSES, positionCounts, positionDetails, profitabilities);
 };
 
 /**
- * Format address for display (first 6 + last 4 characters)
- */
-const formatAddress = (address: string): string => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
-};
-
-/**
- * Process and save a new trade activity
- */
-const processNewTrade = async (
-    activity: Record<string, unknown>,
-    address: string,
-    UserActivity: UserModelConfig['UserActivity']
-): Promise<void> => {
-    // Skip if too old
-    const timestamp = typeof activity.timestamp === 'number' ? activity.timestamp : 0;
-    if (timestamp < TOO_OLD_TIMESTAMP) {
-        return;
-    }
-
-    // Check if this trade already exists in database
-    const transactionHash = String(activity.transactionHash ?? '');
-    const existingActivity = await UserActivity.findOne({
-        transactionHash,
-    }).exec();
-
-    if (existingActivity) {
-        return; // Already processed this trade
-    }
-
-    // Save new trade to database
-    const newActivity = new UserActivity({
-        proxyWallet: String(activity.proxyWallet ?? ''),
-        timestamp,
-        conditionId: String(activity.conditionId ?? ''),
-        type: String(activity.type ?? ''),
-        size: typeof activity.size === 'number' ? activity.size : 0,
-        usdcSize: typeof activity.usdcSize === 'number' ? activity.usdcSize : 0,
-        transactionHash,
-        price: typeof activity.price === 'number' ? activity.price : 0,
-        asset: String(activity.asset ?? ''),
-        side: String(activity.side ?? ''),
-        outcomeIndex: typeof activity.outcomeIndex === 'number' ? activity.outcomeIndex : 0,
-        title: String(activity.title ?? ''),
-        slug: String(activity.slug ?? ''),
-        icon: String(activity.icon ?? ''),
-        eventSlug: String(activity.eventSlug ?? ''),
-        outcome: String(activity.outcome ?? ''),
-        name: String(activity.name ?? ''),
-        pseudonym: String(activity.pseudonym ?? ''),
-        bio: String(activity.bio ?? ''),
-        profileImage: String(activity.profileImage ?? ''),
-        profileImageOptimized: String(activity.profileImageOptimized ?? ''),
-        bot: false,
-        botExcutedTime: 0,
-    });
-
-    await newActivity.save();
-    Logger.info(`New trade detected for ${formatAddress(address)}`);
-};
-
-/**
- * Update positions for a trader
- */
-const updateTraderPositions = async (
-    address: string,
-    UserPosition: UserModelConfig['UserPosition']
-): Promise<void> => {
-    const { positions } = await fetchUserPositionsAndBalance(address);
-
-    if (positions.length > 0) {
-        for (const position of positions) {
-            // Update or create position
-            await UserPosition.findOneAndUpdate(
-                { asset: position.asset ?? '', conditionId: position.conditionId ?? '' },
-                {
-                    proxyWallet: position.proxyWallet,
-                    asset: position.asset,
-                    conditionId: position.conditionId,
-                    size: position.size,
-                    avgPrice: position.avgPrice,
-                    initialValue: position.initialValue,
-                    currentValue: position.currentValue,
-                    cashPnl: position.cashPnl,
-                    percentPnl: position.percentPnl,
-                    totalBought: position.totalBought,
-                    realizedPnl: position.realizedPnl,
-                    percentRealizedPnl: position.percentRealizedPnl,
-                    curPrice: position.curPrice,
-                    redeemable: position.redeemable,
-                    mergeable: position.mergeable,
-                    title: position.title,
-                    slug: position.slug,
-                    icon: position.icon,
-                    eventSlug: position.eventSlug,
-                    outcome: position.outcome,
-                    outcomeIndex: position.outcomeIndex,
-                    oppositeOutcome: position.oppositeOutcome,
-                    oppositeAsset: position.oppositeAsset,
-                    endDate: position.endDate,
-                    negativeRisk: position.negativeRisk,
-                },
-                { upsert: true }
-            );
-        }
-    }
-};
-
-/**
- * Fetch and process trade data for all monitored traders
+ * Fetch and process trade data from Polymarket API
  */
 const fetchTradeData = async (): Promise<void> => {
     for (const { address, UserActivity, UserPosition } of userModels) {
         try {
             // Fetch trade activities from Polymarket API
-            const apiUrl = `https://data-api.polymarket.com/activity?user=${address}&type=TRADE`;
-            const activities = (await fetchData(apiUrl)) as Array<Record<string, unknown>>;
+            const apiUrl = `${POLYMARKET_API.DATA_API_BASE}${POLYMARKET_API.ACTIVITY_ENDPOINT}?user=${address}&type=${DB_FIELDS.TYPE_TRADE}`;
+            const activities = await fetchData<UserActivityInterface[]>(apiUrl);
 
             if (!Array.isArray(activities) || activities.length === 0) {
                 continue;
@@ -240,14 +133,94 @@ const fetchTradeData = async (): Promise<void> => {
 
             // Process each activity
             for (const activity of activities) {
-                await processNewTrade(activity, address, UserActivity);
+                // Skip if too old
+                if (activity.timestamp < TOO_OLD_TIMESTAMP) {
+                    continue;
+                }
+
+                // Check if this trade already exists in database
+                const existingActivity = await UserActivity.findOne({
+                    transactionHash: activity.transactionHash,
+                }).exec();
+
+                if (existingActivity) {
+                    continue; // Already processed this trade
+                }
+
+                // Save new trade to database
+                const newActivity = new UserActivity({
+                    proxyWallet: activity.proxyWallet,
+                    timestamp: activity.timestamp,
+                    conditionId: activity.conditionId,
+                    type: activity.type,
+                    size: activity.size,
+                    usdcSize: activity.usdcSize,
+                    transactionHash: activity.transactionHash,
+                    price: activity.price,
+                    asset: activity.asset,
+                    side: activity.side,
+                    outcomeIndex: activity.outcomeIndex,
+                    title: activity.title,
+                    slug: activity.slug,
+                    icon: activity.icon,
+                    eventSlug: activity.eventSlug,
+                    outcome: activity.outcome,
+                    name: activity.name,
+                    pseudonym: activity.pseudonym,
+                    bio: activity.bio,
+                    profileImage: activity.profileImage,
+                    profileImageOptimized: activity.profileImageOptimized,
+                    bot: false,
+                    botExcutedTime: 0,
+                });
+
+                await newActivity.save();
+                Logger.info(`New trade detected for ${address.slice(0, 6)}...${address.slice(-4)}`);
             }
 
-            // Update positions
-            await updateTraderPositions(address, UserPosition);
+            // Also fetch and update positions
+            const positionsUrl = `${POLYMARKET_API.DATA_API_BASE}${POLYMARKET_API.POSITIONS_ENDPOINT}?user=${address}`;
+            const positions = await fetchData<UserPositionInterface[]>(positionsUrl);
+
+            if (Array.isArray(positions) && positions.length > 0) {
+                for (const position of positions) {
+                    // Update or create position
+                    await UserPosition.findOneAndUpdate(
+                        { asset: position.asset, conditionId: position.conditionId },
+                        {
+                            proxyWallet: position.proxyWallet,
+                            asset: position.asset,
+                            conditionId: position.conditionId,
+                            size: position.size,
+                            avgPrice: position.avgPrice,
+                            initialValue: position.initialValue,
+                            currentValue: position.currentValue,
+                            cashPnl: position.cashPnl,
+                            percentPnl: position.percentPnl,
+                            totalBought: position.totalBought,
+                            realizedPnl: position.realizedPnl,
+                            percentRealizedPnl: position.percentRealizedPnl,
+                            curPrice: position.curPrice,
+                            redeemable: position.redeemable,
+                            mergeable: position.mergeable,
+                            title: position.title,
+                            slug: position.slug,
+                            icon: position.icon,
+                            eventSlug: position.eventSlug,
+                            outcome: position.outcome,
+                            outcomeIndex: position.outcomeIndex,
+                            oppositeOutcome: position.oppositeOutcome,
+                            oppositeAsset: position.oppositeAsset,
+                            endDate: position.endDate,
+                            negativeRisk: position.negativeRisk,
+                        },
+                        { upsert: true }
+                    );
+                }
+            }
         } catch (error) {
             Logger.error(
-                `Error fetching data for ${formatAddress(address)}: ${formatError(error)}`
+                `Error fetching data for ${address.slice(0, 6)}...${address.slice(-4)}: ${error}`
             );
         }
     }
@@ -267,8 +240,8 @@ export const stopTradeMonitor = (): void => {
 };
 
 /**
- * Main trade monitoring function
- * Monitors traders for new trades and updates positions
+ * Main trade monitor function
+ * Monitors traders for new trades and updates database
  */
 const tradeMonitor = async (): Promise<void> => {
     await init();
@@ -280,8 +253,13 @@ const tradeMonitor = async (): Promise<void> => {
         Logger.info('First run: marking all historical trades as processed...');
         for (const { address, UserActivity } of userModels) {
             const count = await UserActivity.updateMany(
-                { bot: false },
-                { $set: { bot: true, botExcutedTime: 999 } }
+                { [DB_FIELDS.BOT_EXECUTED]: false },
+                {
+                    $set: {
+                        [DB_FIELDS.BOT_EXECUTED]: true,
+                        [DB_FIELDS.BOT_EXECUTED_TIME]: 999,
+                    },
+                }
             );
             if (count.modifiedCount > 0) {
                 Logger.info(
@@ -297,7 +275,9 @@ const tradeMonitor = async (): Promise<void> => {
     while (isRunning) {
         await fetchTradeData();
         if (!isRunning) break;
-        await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));
+        await new Promise((resolve) =>
+            setTimeout(resolve, FETCH_INTERVAL * TIME_CONSTANTS.SECOND_MS)
+        );
     }
 
     Logger.info('Trade monitor stopped');

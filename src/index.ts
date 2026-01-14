@@ -5,20 +5,17 @@ import tradeExecutor, { stopTradeExecutor } from './services/tradeExecutor';
 import tradeMonitor, { stopTradeMonitor } from './services/tradeMonitor';
 import Logger from './utils/logger';
 import { performHealthCheck, logHealthCheck } from './utils/healthCheck';
+import { normalizeError, isOperationalError } from './utils/errors';
 
 const USER_ADDRESSES = ENV.USER_ADDRESSES;
 const PROXY_WALLET = ENV.PROXY_WALLET;
 
-/**
- * Flag to prevent multiple shutdown attempts
- */
+// Graceful shutdown handler
 let isShuttingDown = false;
 
 /**
- * Gracefully shuts down the application
- * Stops all services, closes database connections, and exits cleanly
- *
- * @param signal - The signal that triggered the shutdown (e.g., 'SIGTERM', 'SIGINT')
+ * Gracefully shutdown the application
+ * @param signal - Signal that triggered shutdown
  */
 const gracefulShutdown = async (signal: string): Promise<void> => {
     if (isShuttingDown) {
@@ -45,62 +42,42 @@ const gracefulShutdown = async (signal: string): Promise<void> => {
         Logger.success('Graceful shutdown completed');
         process.exit(0);
     } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        Logger.error(`Error during shutdown: ${errorMessage}`);
-        if (error instanceof Error && error.stack) {
-            Logger.error(`Stack trace: ${error.stack}`);
-        }
+        Logger.error(`Error during shutdown: ${error}`);
         process.exit(1);
     }
 };
 
-/**
- * Handle unhandled promise rejections
- * Logs the error but doesn't exit to allow the application to recover
- */
+// Handle unhandled promise rejections
 process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
-    const reasonMessage = reason instanceof Error ? reason.message : String(reason);
-    Logger.error(`Unhandled Rejection at: ${promise}, reason: ${reasonMessage}`);
-    if (reason instanceof Error && reason.stack) {
-        Logger.error(`Stack trace: ${reason.stack}`);
+    const error = normalizeError(reason);
+    Logger.error(
+        `Unhandled Rejection at: ${promise}, reason: ${error.message}${error.stack ? `\n${error.stack}` : ''}`
+    );
+    // Don't exit immediately for operational errors, let the application try to recover
+    if (!isOperationalError(error)) {
+        Logger.error('Non-operational error detected, shutting down...');
+        gracefulShutdown('unhandledRejection').catch(() => {
+            process.exit(1);
+        });
     }
-    // Don't exit immediately, let the application try to recover
 });
 
-/**
- * Handle uncaught exceptions
- * Exits immediately as the application is in an undefined state
- */
+// Handle uncaught exceptions
 process.on('uncaughtException', (error: Error) => {
-    Logger.error(`Uncaught Exception: ${error.message}`);
-    if (error.stack) {
-        Logger.error(`Stack trace: ${error.stack}`);
-    }
+    Logger.error(`Uncaught Exception: ${error.message}${error.stack ? `\n${error.stack}` : ''}`);
     // Exit immediately for uncaught exceptions as the application is in an undefined state
     gracefulShutdown('uncaughtException').catch(() => {
         process.exit(1);
     });
 });
 
-/**
- * Handle termination signals
- */
-process.on('SIGTERM', () => {
-    gracefulShutdown('SIGTERM').catch(() => {
-        process.exit(1);
-    });
-});
-process.on('SIGINT', () => {
-    gracefulShutdown('SIGINT').catch(() => {
-        process.exit(1);
-    });
-});
+// Handle termination signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 /**
  * Main application entry point
- * Initializes database, performs health checks, and starts trading services
- *
- * @throws {Error} If initialization fails
+ * Initializes database, CLOB client, and starts trade monitoring/execution
  */
 export const main = async (): Promise<void> => {
     try {
@@ -137,12 +114,12 @@ export const main = async (): Promise<void> => {
 
         Logger.info('Starting trade executor...');
         tradeExecutor(clobClient);
+
     } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        Logger.error(`Fatal error during startup: ${errorMessage}`);
-        if (error instanceof Error && error.stack) {
-            Logger.error(`Stack trace: ${error.stack}`);
-        }
+        const normalizedError = normalizeError(error);
+        Logger.error(
+            `Fatal error during startup: ${normalizedError.message}${normalizedError.stack ? `\n${normalizedError.stack}` : ''}`
+        );
         await gracefulShutdown('startup-error');
     }
 };
