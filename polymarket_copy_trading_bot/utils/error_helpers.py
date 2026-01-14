@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from polymarket_copy_trading_bot.utils.errors import InsufficientFundsError, TradingError
+
 
 def extract_error_message(response: Any) -> Optional[str]:
     if response is None:
@@ -34,6 +36,22 @@ def is_insufficient_balance_or_allowance_error(message: Optional[str]) -> bool:
     lower = message.lower()
     return "not enough balance" in lower or "allowance" in lower
 
+
+def normalize_error(error: Any) -> TradingError:
+    if isinstance(error, TradingError):
+        return error
+    if isinstance(error, Exception):
+        return TradingError(str(error))
+    return TradingError(str(error))
+
+
+def raise_if_insufficient_funds(message: Optional[str]) -> None:
+    if is_insufficient_balance_or_allowance_error(message):
+        raise InsufficientFundsError(message or "Insufficient balance or allowance")
+
+
+def extract_order_error(response: Any) -> Optional[str]:
+    return extract_error_message(response)
 
 def format_error(error: Any) -> str:
     if isinstance(error, Exception):

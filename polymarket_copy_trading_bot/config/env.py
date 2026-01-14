@@ -14,6 +14,7 @@ from polymarket_copy_trading_bot.config.copy_strategy import (
     CopyStrategyConfig,
     parse_tiered_multipliers,
 )
+from polymarket_copy_trading_bot.utils.errors import ConfigurationError
 
 load_dotenv()
 
@@ -41,7 +42,9 @@ def _validate_required_env() -> None:
         print("Quick fix:")
         print("  1) Run the setup wizard: python -m polymarket_copy_trading_bot.scripts.setup")
         print("  2) Or create .env with all required variables\n")
-        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+        raise ConfigurationError(
+            f"Missing required environment variables: {', '.join(missing)}"
+        )
 
 
 def _validate_addresses() -> None:
@@ -50,14 +53,14 @@ def _validate_addresses() -> None:
         print("\n[ERROR] Invalid wallet address\n")
         print(f"Your PROXY_WALLET: {proxy_wallet}")
         print("Expected format: 0x followed by 40 hex characters\n")
-        raise RuntimeError(f"Invalid PROXY_WALLET address format: {proxy_wallet}")
+        raise ConfigurationError(f"Invalid PROXY_WALLET address format: {proxy_wallet}")
 
     usdc_address = os.getenv("USDC_CONTRACT_ADDRESS", "")
     if usdc_address and not _is_valid_eth_address(usdc_address):
         print("\n[ERROR] Invalid USDC contract address\n")
         print(f"Current value: {usdc_address}")
         print("Default value: 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174\n")
-        raise RuntimeError(
+        raise ConfigurationError(
             f"Invalid USDC_CONTRACT_ADDRESS format: {usdc_address}"
         )
 
@@ -65,47 +68,49 @@ def _validate_addresses() -> None:
 def _validate_numeric_config() -> None:
     fetch_interval = int(os.getenv("FETCH_INTERVAL", "1"))
     if fetch_interval <= 0:
-        raise RuntimeError("Invalid FETCH_INTERVAL: must be a positive integer")
+        raise ConfigurationError("Invalid FETCH_INTERVAL: must be a positive integer")
 
     retry_limit = int(os.getenv("RETRY_LIMIT", "3"))
     if retry_limit < 1 or retry_limit > 10:
-        raise RuntimeError("Invalid RETRY_LIMIT: must be between 1 and 10")
+        raise ConfigurationError("Invalid RETRY_LIMIT: must be between 1 and 10")
 
     too_old_timestamp = int(os.getenv("TOO_OLD_TIMESTAMP", "24"))
     if too_old_timestamp < 1:
-        raise RuntimeError("Invalid TOO_OLD_TIMESTAMP: must be a positive integer (hours)")
+        raise ConfigurationError(
+            "Invalid TOO_OLD_TIMESTAMP: must be a positive integer (hours)"
+        )
 
     request_timeout = int(os.getenv("REQUEST_TIMEOUT_MS", "10000"))
     if request_timeout < 1000:
-        raise RuntimeError("Invalid REQUEST_TIMEOUT_MS: must be at least 1000ms")
+        raise ConfigurationError("Invalid REQUEST_TIMEOUT_MS: must be at least 1000ms")
 
     network_retry_limit = int(os.getenv("NETWORK_RETRY_LIMIT", "3"))
     if network_retry_limit < 1 or network_retry_limit > 10:
-        raise RuntimeError("Invalid NETWORK_RETRY_LIMIT: must be between 1 and 10")
+        raise ConfigurationError("Invalid NETWORK_RETRY_LIMIT: must be between 1 and 10")
 
 
 def _validate_urls() -> None:
     clob_http = os.getenv("CLOB_HTTP_URL", "")
     if clob_http and not clob_http.startswith("http"):
-        raise RuntimeError(
+        raise ConfigurationError(
             f"Invalid CLOB_HTTP_URL: {clob_http}. Must be a valid HTTP/HTTPS URL."
         )
 
     clob_ws = os.getenv("CLOB_WS_URL", "")
     if clob_ws and not clob_ws.startswith("ws"):
-        raise RuntimeError(
+        raise ConfigurationError(
             f"Invalid CLOB_WS_URL: {clob_ws}. Must be a valid WebSocket URL."
         )
 
     rpc_url = os.getenv("RPC_URL", "")
     if rpc_url and not rpc_url.startswith("http"):
-        raise RuntimeError(
+        raise ConfigurationError(
             f"Invalid RPC_URL: {rpc_url}. Must be a valid HTTP/HTTPS URL."
         )
 
     mongo_uri = os.getenv("MONGO_URI", "")
     if mongo_uri and not mongo_uri.startswith("mongodb"):
-        raise RuntimeError(
+        raise ConfigurationError(
             f"Invalid MONGO_URI: {mongo_uri}. Must be a valid MongoDB connection string."
         )
 
@@ -119,17 +124,19 @@ def _parse_user_addresses(value: str) -> list[str]:
                 addresses = [str(addr).lower().strip() for addr in parsed if str(addr).strip()]
                 for addr in addresses:
                     if not _is_valid_eth_address(addr):
-                        raise RuntimeError(
+                        raise ConfigurationError(
                             f"Invalid Ethereum address in USER_ADDRESSES: {addr}"
                         )
                 return addresses
         except json.JSONDecodeError as exc:
-            raise RuntimeError(f"Invalid JSON format for USER_ADDRESSES: {exc}") from exc
+            raise ConfigurationError(
+                f"Invalid JSON format for USER_ADDRESSES: {exc}"
+            ) from exc
 
     addresses = [addr.lower().strip() for addr in trimmed.split(",") if addr.strip()]
     for addr in addresses:
         if not _is_valid_eth_address(addr):
-            raise RuntimeError(f"Invalid Ethereum address in USER_ADDRESSES: {addr}")
+        raise ConfigurationError(f"Invalid Ethereum address in USER_ADDRESSES: {addr}")
     return addresses
 
 

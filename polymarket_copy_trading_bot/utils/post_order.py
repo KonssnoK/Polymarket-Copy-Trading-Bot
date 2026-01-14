@@ -14,10 +14,12 @@ from polymarket_copy_trading_bot.models.user_history import get_user_activity_co
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import MarketOrderArgs, OrderArgs, OrderType
 from py_clob_client.order_builder.constants import BUY, SELL
+from polymarket_copy_trading_bot.utils.constants import DB_FIELDS, TRADING_CONSTANTS
 from polymarket_copy_trading_bot.utils.error_helpers import (
-    extract_error_message,
-    is_insufficient_balance_or_allowance_error,
+    extract_order_error,
+    raise_if_insufficient_funds,
 )
+from polymarket_copy_trading_bot.utils.errors import InsufficientFundsError
 from polymarket_copy_trading_bot.utils.logger import Logger
 
 RETRY_LIMIT = ENV.retry_limit
@@ -26,8 +28,8 @@ COPY_STRATEGY_CONFIG = ENV.copy_strategy_config
 TRADE_MULTIPLIER = ENV.trade_multiplier
 COPY_PERCENTAGE = ENV.copy_percentage
 
-MIN_ORDER_SIZE_USD = 1.0
-MIN_ORDER_SIZE_TOKENS = 1.0
+MIN_ORDER_SIZE_USD = TRADING_CONSTANTS.min_order_size_usd
+MIN_ORDER_SIZE_TOKENS = TRADING_CONSTANTS.min_order_size_tokens
 
 
 def post_order(
@@ -46,7 +48,10 @@ def post_order(
         Logger.info("Executing MERGE strategy...")
         if not my_position:
             Logger.warning("No position to merge")
-            user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+            user_activity.update_one(
+                {"_id": trade.get("_id")},
+                {"$set": {DB_FIELDS.bot_executed: True}},
+            )
             return
 
         remaining = float(my_position.get("size") or 0)
@@ -54,7 +59,10 @@ def post_order(
             Logger.warning(
                 f"Position size ({remaining:.2f} tokens) too small to merge - skipping"
             )
-            user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+            user_activity.update_one(
+                {"_id": trade.get("_id")},
+                {"$set": {DB_FIELDS.bot_executed: True}},
+            )
             return
 
         retry = 0
@@ -64,7 +72,10 @@ def post_order(
             bids = order_book.bids
             if not bids:
                 Logger.warning("No bids available in order book")
-                user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+                user_activity.update_one(
+                    {"_id": trade.get("_id")},
+                    {"$set": {DB_FIELDS.bot_executed: True}},
+                )
                 break
 
             max_bid = max(bids, key=lambda bid: float(bid.price))
@@ -89,8 +100,10 @@ def post_order(
                 Logger.order_result(True, f"Sold {amount} tokens at ${price}")
                 remaining -= amount
             else:
-                error_message = extract_error_message(resp)
-                if is_insufficient_balance_or_allowance_error(error_message):
+                error_message = extract_order_error(resp)
+                try:
+                    raise_if_insufficient_funds(error_message)
+                except InsufficientFundsError:
                     abort_due_to_funds = True
                     Logger.warning(
                         f"Order rejected: {error_message or 'Insufficient balance or allowance'}"
@@ -107,16 +120,19 @@ def post_order(
         if abort_due_to_funds:
             user_activity.update_one(
                 {"_id": trade.get("_id")},
-                {"$set": {"bot": True, "botExcutedTime": RETRY_LIMIT}},
+                {"$set": {DB_FIELDS.bot_executed: True, DB_FIELDS.bot_executed_time: RETRY_LIMIT}},
             )
             return
         if retry >= RETRY_LIMIT:
             user_activity.update_one(
                 {"_id": trade.get("_id")},
-                {"$set": {"bot": True, "botExcutedTime": retry}},
+                {"$set": {DB_FIELDS.bot_executed: True, DB_FIELDS.bot_executed_time: retry}},
             )
         else:
-            user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+            user_activity.update_one(
+                {"_id": trade.get("_id")},
+                {"$set": {DB_FIELDS.bot_executed: True}},
+            )
         return
 
     if condition == "buy":
@@ -142,7 +158,10 @@ def post_order(
             Logger.warning(f"Cannot execute: {order_calc.reasoning}")
             if order_calc.below_minimum:
                 Logger.warning("Increase COPY_SIZE or wait for larger trades")
-            user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+            user_activity.update_one(
+                {"_id": trade.get("_id")},
+                {"$set": {DB_FIELDS.bot_executed: True}},
+            )
             return
 
         remaining = order_calc.final_amount
@@ -160,7 +179,10 @@ def post_order(
                 Logger.warning(
                     f"No asks available in order book (token_id={token_id}, condition_id={condition_id}, trade_price=${trade_price:.4f})"
                 )
-                user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+                user_activity.update_one(
+                    {"_id": trade.get("_id")},
+                    {"$set": {DB_FIELDS.bot_executed: True}},
+                )
                 break
 
             min_ask = min(asks, key=lambda ask: float(ask.price))
@@ -168,9 +190,12 @@ def post_order(
             ask_size = float(min_ask.size)
             Logger.info(f"Best ask: {ask_size} @ ${price}")
 
-            if price - 0.05 > trade_price:
+            if price - TRADING_CONSTANTS.max_price_slippage > trade_price:
                 Logger.warning("Price slippage too high - skipping trade")
-                user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+                user_activity.update_one(
+                    {"_id": trade.get("_id")},
+                    {"$set": {DB_FIELDS.bot_executed: True}},
+                )
                 break
 
             if remaining < MIN_ORDER_SIZE_USD:
@@ -179,7 +204,12 @@ def post_order(
                 )
                 user_activity.update_one(
                     {"_id": trade.get("_id")},
-                    {"$set": {"bot": True, "myBoughtSize": total_bought_tokens}},
+                    {
+                        "$set": {
+                            DB_FIELDS.bot_executed: True,
+                            DB_FIELDS.my_bought_size: total_bought_tokens,
+                        }
+                    },
                 )
                 break
 
@@ -208,8 +238,10 @@ def post_order(
                 )
                 remaining -= order_size
             else:
-                error_message = extract_error_message(resp)
-                if is_insufficient_balance_or_allowance_error(error_message):
+                error_message = extract_order_error(resp)
+                try:
+                    raise_if_insufficient_funds(error_message)
+                except InsufficientFundsError:
                     abort_due_to_funds = True
                     Logger.warning(
                         f"Order rejected: {error_message or 'Insufficient balance or allowance'}"
@@ -226,18 +258,30 @@ def post_order(
         if abort_due_to_funds:
             user_activity.update_one(
                 {"_id": trade.get("_id")},
-                {"$set": {"bot": True, "botExcutedTime": RETRY_LIMIT, "myBoughtSize": total_bought_tokens}},
+                {
+                    "$set": {
+                        DB_FIELDS.bot_executed: True,
+                        DB_FIELDS.bot_executed_time: RETRY_LIMIT,
+                        DB_FIELDS.my_bought_size: total_bought_tokens,
+                    }
+                },
             )
             return
         if retry >= RETRY_LIMIT:
             user_activity.update_one(
                 {"_id": trade.get("_id")},
-                {"$set": {"bot": True, "botExcutedTime": retry, "myBoughtSize": total_bought_tokens}},
+                {
+                    "$set": {
+                        DB_FIELDS.bot_executed: True,
+                        DB_FIELDS.bot_executed_time: retry,
+                        DB_FIELDS.my_bought_size: total_bought_tokens,
+                    }
+                },
             )
         else:
             user_activity.update_one(
                 {"_id": trade.get("_id")},
-                {"$set": {"bot": True, "myBoughtSize": total_bought_tokens}},
+                {"$set": {DB_FIELDS.bot_executed: True, DB_FIELDS.my_bought_size: total_bought_tokens}},
             )
 
         if total_bought_tokens > 0:
@@ -252,7 +296,10 @@ def post_order(
 
         if not my_position:
             Logger.warning("No position to sell")
-            user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+            user_activity.update_one(
+                {"_id": trade.get("_id")},
+                {"$set": {DB_FIELDS.bot_executed: True}},
+            )
             return
 
         previous_buys = list(
@@ -260,14 +307,16 @@ def post_order(
                 {
                     "asset": trade.get("asset"),
                     "conditionId": trade.get("conditionId"),
-                    "side": "BUY",
-                    "bot": True,
-                    "myBoughtSize": {"$exists": True, "$gt": 0},
+                    "side": DB_FIELDS.side_buy,
+                    DB_FIELDS.bot_executed: True,
+                    DB_FIELDS.my_bought_size: {"$exists": True, "$gt": 0},
                 }
             )
         )
 
-        total_bought_tokens = sum(float(buy.get("myBoughtSize") or 0) for buy in previous_buys)
+        total_bought_tokens = sum(
+            float(buy.get(DB_FIELDS.my_bought_size) or 0) for buy in previous_buys
+        )
 
         if total_bought_tokens > 0:
             Logger.info(
@@ -314,7 +363,10 @@ def post_order(
                 f"Cannot execute: Sell amount {remaining:.2f} tokens below minimum ({MIN_ORDER_SIZE_TOKENS} token)"
             )
             Logger.warning("This happens when position sizes are too small or mismatched")
-            user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+            user_activity.update_one(
+                {"_id": trade.get("_id")},
+                {"$set": {DB_FIELDS.bot_executed: True}},
+            )
             return
 
         max_position = float(my_position.get("size") or 0)
@@ -335,7 +387,10 @@ def post_order(
             order_book = clob_client.get_order_book(token_id)
             bids = order_book.bids
             if not bids:
-                user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+                user_activity.update_one(
+                    {"_id": trade.get("_id")},
+                    {"$set": {DB_FIELDS.bot_executed: True}},
+                )
                 Logger.warning(
                     f"No bids available in order book (token_id={token_id}, condition_id={condition_id})"
                 )
@@ -350,7 +405,10 @@ def post_order(
                 Logger.info(
                     f"Remaining amount ({remaining:.2f} tokens) below minimum - completing trade"
                 )
-                user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+                user_activity.update_one(
+                    {"_id": trade.get("_id")},
+                    {"$set": {DB_FIELDS.bot_executed: True}},
+                )
                 break
 
             sell_amount = min(remaining, bid_size)
@@ -358,7 +416,10 @@ def post_order(
                 Logger.info(
                     f"Order amount ({sell_amount:.2f} tokens) below minimum - completing trade"
                 )
-                user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+                user_activity.update_one(
+                    {"_id": trade.get("_id")},
+                    {"$set": {DB_FIELDS.bot_executed: True}},
+                )
                 break
 
             order_args = MarketOrderArgs(
@@ -375,8 +436,10 @@ def post_order(
                 Logger.order_result(True, f"Sold {sell_amount} tokens at ${price}")
                 remaining -= sell_amount
             else:
-                error_message = extract_error_message(resp)
-                if is_insufficient_balance_or_allowance_error(error_message):
+                error_message = extract_order_error(resp)
+                try:
+                    raise_if_insufficient_funds(error_message)
+                except InsufficientFundsError:
                     abort_due_to_funds = True
                     Logger.warning(
                         f"Order rejected: {error_message or 'Insufficient balance or allowance'}"
@@ -397,19 +460,22 @@ def post_order(
                     {
                         "asset": trade.get("asset"),
                         "conditionId": trade.get("conditionId"),
-                        "side": "BUY",
-                        "bot": True,
-                        "myBoughtSize": {"$exists": True, "$gt": 0},
+                        "side": DB_FIELDS.side_buy,
+                        DB_FIELDS.bot_executed: True,
+                        DB_FIELDS.my_bought_size: {"$exists": True, "$gt": 0},
                     },
-                    {"$set": {"myBoughtSize": 0}},
+                    {"$set": {DB_FIELDS.my_bought_size: 0}},
                 )
                 Logger.info(
                     f"Cleared purchase tracking (sold {sell_percentage * 100:.1f}% of position)"
                 )
             else:
                 for buy in previous_buys:
-                    new_size = float(buy.get("myBoughtSize") or 0) * (1 - sell_percentage)
-                    user_activity.update_one({"_id": buy.get("_id")}, {"$set": {"myBoughtSize": new_size}})
+                    new_size = float(buy.get(DB_FIELDS.my_bought_size) or 0) * (1 - sell_percentage)
+                    user_activity.update_one(
+                        {"_id": buy.get("_id")},
+                        {"$set": {DB_FIELDS.my_bought_size: new_size}},
+                    )
                 Logger.info(
                     f"Updated purchase tracking (sold {sell_percentage * 100:.1f}% of tracked position)"
                 )
@@ -417,16 +483,19 @@ def post_order(
         if abort_due_to_funds:
             user_activity.update_one(
                 {"_id": trade.get("_id")},
-                {"$set": {"bot": True, "botExcutedTime": RETRY_LIMIT}},
+                {"$set": {DB_FIELDS.bot_executed: True, DB_FIELDS.bot_executed_time: RETRY_LIMIT}},
             )
             return
         if retry >= RETRY_LIMIT:
             user_activity.update_one(
                 {"_id": trade.get("_id")},
-                {"$set": {"bot": True, "botExcutedTime": retry}},
+                {"$set": {DB_FIELDS.bot_executed: True, DB_FIELDS.bot_executed_time: retry}},
             )
         else:
-            user_activity.update_one({"_id": trade.get("_id")}, {"$set": {"bot": True}})
+            user_activity.update_one(
+                {"_id": trade.get("_id")},
+                {"$set": {DB_FIELDS.bot_executed: True}},
+            )
         return
 
     Logger.error(f"Unknown condition: {condition}")
