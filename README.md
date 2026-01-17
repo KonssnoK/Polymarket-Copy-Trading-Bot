@@ -1,4 +1,4 @@
-# Polymarket Copy Trading Bot - Automated Trading Bot for Polymarket Prediction Markets
+# Polymarket Copy Trading Bot - Trading Bot for Polymarket Prediction Markets
 
 <!-- SEO Meta Description: Best Polymarket copy trading bot for automated trading. Mirror top traders on Polymarket with intelligent position sizing, real-time execution, and 24/7 monitoring. Free open-source TypeScript trading bot for Polygon blockchain. -->
 
@@ -302,9 +302,17 @@ Yes! The bot supports:
 
 ## 🚀 Advanced Version
 
-### Version 2.0 - RTDS (Real-Time Data Stream)
+### Version 3.0 - RTDS (Real-Time Data Stream)
 
 An advanced version with **Real-Time Data Stream (RTDS)** monitoring is available as a private repository.
+
+<img width="1900" height="909" alt="Screenshot_1" src="https://github.com/user-attachments/assets/c7383d27-7331-42f7-aa55-beb1fdf08373" />
+
+<img width="1904" height="909" alt="Screenshot_2" src="https://github.com/user-attachments/assets/651bcdb5-4aeb-4885-900d-23f7b5876d5d" />
+
+<img width="1900" height="908" alt="Screenshot_3" src="https://github.com/user-attachments/assets/175969ee-af21-40b0-a9fc-73818baa9734" />
+
+<img width="1902" height="905" alt="Screenshot_4" src="https://github.com/user-attachments/assets/46b96995-dafe-48ae-8eff-30106cf8100b" />
 
 #### Enhanced Features
 
