@@ -204,6 +204,54 @@ def _optional_float(key: str) -> float | None:
     return float(value)
 
 
+def _parse_copy_size_by_user(value: str) -> dict[str, float]:
+    trimmed = value.strip()
+    if not trimmed:
+        return {}
+
+    def _parse_entry(addr: str, size_value: str) -> tuple[str, float]:
+        address = addr.lower().strip()
+        if not _is_valid_eth_address(address):
+            raise ConfigurationError(
+                f"Invalid Ethereum address in COPY_SIZE_BY_USER: {address}"
+            )
+        size = float(size_value)
+        if size <= 0:
+            raise ConfigurationError(
+                f"Invalid COPY_SIZE_BY_USER value for {address}: must be positive"
+            )
+        return address, size
+
+    if trimmed.startswith("{") and trimmed.endswith("}"):
+        try:
+            parsed = json.loads(trimmed)
+        except json.JSONDecodeError as exc:
+            raise ConfigurationError(
+                f"Invalid JSON format for COPY_SIZE_BY_USER: {exc}"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ConfigurationError(
+                "COPY_SIZE_BY_USER must be a JSON object mapping address to size"
+            )
+        output: dict[str, float] = {}
+        for addr, size_value in parsed.items():
+            address, size = _parse_entry(str(addr), str(size_value))
+            output[address] = size
+        return output
+
+    pairs = [pair.strip() for pair in trimmed.split(",") if pair.strip()]
+    output: dict[str, float] = {}
+    for pair in pairs:
+        if "=" not in pair:
+            raise ConfigurationError(
+                f"Invalid COPY_SIZE_BY_USER entry '{pair}'. Expected format '0x...=size'"
+            )
+        addr, size_value = pair.split("=", 1)
+        address, size = _parse_entry(addr, size_value.strip())
+        output[address] = size
+    return output
+
+
 _validate_required_env()
 _validate_addresses()
 _validate_numeric_config()
@@ -213,6 +261,7 @@ _validate_urls()
 @dataclass(frozen=True)
 class EnvConfig:
     user_addresses: list[str]
+    copy_size_by_user: dict[str, float]
     proxy_wallet: str
     private_key: str
     clob_http_url: str
@@ -234,6 +283,7 @@ class EnvConfig:
 
 ENV = EnvConfig(
     user_addresses=_parse_user_addresses(os.getenv("USER_ADDRESSES", "")),
+    copy_size_by_user=_parse_copy_size_by_user(os.getenv("COPY_SIZE_BY_USER", "")),
     proxy_wallet=os.getenv("PROXY_WALLET", ""),
     private_key=os.getenv("PRIVATE_KEY", ""),
     clob_http_url=os.getenv("CLOB_HTTP_URL", ""),

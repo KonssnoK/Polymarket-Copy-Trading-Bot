@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from polymarket_copy_trading_bot.config.copy_strategy import (
+    CopyStrategyConfig,
     calculate_order_size,
     get_trade_multiplier,
 )
@@ -41,7 +42,9 @@ def post_order(
     my_balance: float,
     user_balance: float,
     user_address: str,
+    copy_strategy_config: CopyStrategyConfig | None = None,
 ) -> None:
+    strategy_config = copy_strategy_config or COPY_STRATEGY_CONFIG
     user_activity = get_user_activity_collection(user_address)
 
     if condition == "merge":
@@ -147,7 +150,7 @@ def post_order(
             )
 
         order_calc = calculate_order_size(
-            COPY_STRATEGY_CONFIG,
+            strategy_config,
             float(trade.get("usdcSize") or 0),
             my_balance,
             current_position_value,
@@ -351,7 +354,7 @@ def post_order(
                     f"No tracked purchases found, using current position: {float(my_position.get('size') or 0):.2f} x {trader_sell_percent * 100:.2f}% = {base_sell_size:.2f} tokens"
                 )
 
-            multiplier = get_trade_multiplier(COPY_STRATEGY_CONFIG, float(trade.get("usdcSize") or 0))
+            multiplier = get_trade_multiplier(strategy_config, float(trade.get("usdcSize") or 0))
             remaining = base_sell_size * multiplier
             if multiplier != 1.0:
                 Logger.info(

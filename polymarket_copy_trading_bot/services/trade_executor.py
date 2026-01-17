@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, List
 
 from polymarket_copy_trading_bot.config.env import ENV
+from polymarket_copy_trading_bot.config.copy_strategy import CopyStrategyConfig
 from polymarket_copy_trading_bot.interfaces.user import UserActivity, UserPosition
 from polymarket_copy_trading_bot.models.user_history import get_user_activity_collection
 from py_clob_client.client import ClobClient
@@ -45,6 +46,14 @@ class AggregatedTrade:
 
 
 _trade_aggregation_buffer: Dict[str, AggregatedTrade] = {}
+
+
+def _copy_strategy_for_user(user_address: str) -> CopyStrategyConfig:
+    override = ENV.copy_size_by_user.get(user_address.lower())
+    if override is None:
+        return ENV.copy_strategy_config
+    Logger.info(f"Using per-trader COPY_SIZE {override} for {user_address}")
+    return replace(ENV.copy_strategy_config, copy_size=override)
 
 
 def _read_temp_trades() -> List[TradeWithUser]:
@@ -174,6 +183,7 @@ def _execute_single_trade(clob_client: ClobClient, trade: TradeWithUser) -> None
 
     data = _prepare_trade_data(trade)
     Logger.balance(data["my_balance"], data["user_balance"], trade.user_address)
+    copy_strategy_config = _copy_strategy_for_user(trade.user_address)
 
     condition = "buy" if trade.trade.get("side") == "BUY" else "sell"
     try:
@@ -186,6 +196,7 @@ def _execute_single_trade(clob_client: ClobClient, trade: TradeWithUser) -> None
             data["my_balance"],
             data["user_balance"],
             trade.user_address,
+            copy_strategy_config,
         )
     except Exception as exc:  # noqa: BLE001
         Logger.error(f"Trade execution failed: {exc}")
@@ -217,6 +228,7 @@ def _do_aggregated_trading(clob_client: ClobClient, aggregated_trades: List[Aggr
 
         data = _prepare_trade_data(agg.trades[0])
         Logger.balance(data["my_balance"], data["user_balance"], agg.user_address)
+        copy_strategy_config = _copy_strategy_for_user(agg.user_address)
 
         first_trade = agg.trades[0].trade
         synthetic_trade = dict(first_trade)
@@ -234,6 +246,7 @@ def _do_aggregated_trading(clob_client: ClobClient, aggregated_trades: List[Aggr
             data["my_balance"],
             data["user_balance"],
             agg.user_address,
+            copy_strategy_config,
         )
 
         Logger.separator()
