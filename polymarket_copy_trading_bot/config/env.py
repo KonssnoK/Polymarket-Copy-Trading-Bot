@@ -80,6 +80,19 @@ def _validate_numeric_config() -> None:
             "Invalid TOO_OLD_TIMESTAMP: must be a positive integer (hours)"
         )
 
+    too_old_trades_minutes = os.getenv("TOO_OLD_TRADES_MINUTES")
+    if too_old_trades_minutes is not None:
+        try:
+            minutes_value = float(too_old_trades_minutes)
+        except ValueError as exc:
+            raise ConfigurationError(
+                "Invalid TOO_OLD_TRADES_MINUTES: must be a positive number (minutes)"
+            ) from exc
+        if minutes_value <= 0:
+            raise ConfigurationError(
+                "Invalid TOO_OLD_TRADES_MINUTES: must be a positive number (minutes)"
+            )
+
     request_timeout = int(os.getenv("REQUEST_TIMEOUT_MS", "10000"))
     if request_timeout < 1000:
         raise ConfigurationError("Invalid REQUEST_TIMEOUT_MS: must be at least 1000ms")
@@ -204,6 +217,54 @@ def _optional_float(key: str) -> float | None:
     return float(value)
 
 
+def _parse_copy_size_by_user(value: str) -> dict[str, float]:
+    trimmed = value.strip()
+    if not trimmed:
+        return {}
+
+    def _parse_entry(addr: str, size_value: str) -> tuple[str, float]:
+        address = addr.lower().strip()
+        if not _is_valid_eth_address(address):
+            raise ConfigurationError(
+                f"Invalid Ethereum address in COPY_SIZE_BY_USER: {address}"
+            )
+        size = float(size_value)
+        if size <= 0:
+            raise ConfigurationError(
+                f"Invalid COPY_SIZE_BY_USER value for {address}: must be positive"
+            )
+        return address, size
+
+    if trimmed.startswith("{") and trimmed.endswith("}"):
+        try:
+            parsed = json.loads(trimmed)
+        except json.JSONDecodeError as exc:
+            raise ConfigurationError(
+                f"Invalid JSON format for COPY_SIZE_BY_USER: {exc}"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ConfigurationError(
+                "COPY_SIZE_BY_USER must be a JSON object mapping address to size"
+            )
+        output: dict[str, float] = {}
+        for addr, size_value in parsed.items():
+            address, size = _parse_entry(str(addr), str(size_value))
+            output[address] = size
+        return output
+
+    pairs = [pair.strip() for pair in trimmed.split(",") if pair.strip()]
+    output: dict[str, float] = {}
+    for pair in pairs:
+        if "=" not in pair:
+            raise ConfigurationError(
+                f"Invalid COPY_SIZE_BY_USER entry '{pair}'. Expected format '0x...=size'"
+            )
+        addr, size_value = pair.split("=", 1)
+        address, size = _parse_entry(addr, size_value.strip())
+        output[address] = size
+    return output
+
+
 _validate_required_env()
 _validate_addresses()
 _validate_numeric_config()
@@ -213,12 +274,14 @@ _validate_urls()
 @dataclass(frozen=True)
 class EnvConfig:
     user_addresses: list[str]
+    copy_size_by_user: dict[str, float]
     proxy_wallet: str
     private_key: str
     clob_http_url: str
     clob_ws_url: str
     fetch_interval: int
     too_old_timestamp: int
+    too_old_trades_minutes: float | None
     retry_limit: int
     trade_multiplier: float
     copy_percentage: float
@@ -234,12 +297,14 @@ class EnvConfig:
 
 ENV = EnvConfig(
     user_addresses=_parse_user_addresses(os.getenv("USER_ADDRESSES", "")),
+    copy_size_by_user=_parse_copy_size_by_user(os.getenv("COPY_SIZE_BY_USER", "")),
     proxy_wallet=os.getenv("PROXY_WALLET", ""),
     private_key=os.getenv("PRIVATE_KEY", ""),
     clob_http_url=os.getenv("CLOB_HTTP_URL", ""),
     clob_ws_url=os.getenv("CLOB_WS_URL", ""),
     fetch_interval=int(os.getenv("FETCH_INTERVAL", "1")),
     too_old_timestamp=int(os.getenv("TOO_OLD_TIMESTAMP", "24")),
+    too_old_trades_minutes=_optional_float("TOO_OLD_TRADES_MINUTES"),
     retry_limit=int(os.getenv("RETRY_LIMIT", "3")),
     trade_multiplier=float(os.getenv("TRADE_MULTIPLIER", "1.0")),
     copy_percentage=float(os.getenv("COPY_PERCENTAGE", "10.0")),

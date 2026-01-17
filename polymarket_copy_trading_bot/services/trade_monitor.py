@@ -19,7 +19,8 @@ from polymarket_copy_trading_bot.utils.position_helpers import (
 )
 
 USER_ADDRESSES = ENV.user_addresses
-TOO_OLD_TIMESTAMP = ENV.too_old_timestamp
+TOO_OLD_HOURS = ENV.too_old_timestamp
+TOO_OLD_MINUTES = ENV.too_old_trades_minutes
 FETCH_INTERVAL = ENV.fetch_interval
 
 if not USER_ADDRESSES:
@@ -121,16 +122,22 @@ def _init_positions() -> None:
     Logger.traders_positions(USER_ADDRESSES, position_counts, position_details, profitabilities)
 
 
-def _process_new_trade(activity: dict, address: str, collection) -> None:
+def _get_old_trade_cutoff() -> int:
+    now = int(time.time())
+    if TOO_OLD_MINUTES is not None:
+        return now - int(TOO_OLD_MINUTES * 60)
+    return now - int(TOO_OLD_HOURS * 3600)
+
+
+def _process_new_trade(activity: dict, address: str, collection, cutoff_ts: int) -> None:
     timestamp = int(activity.get("timestamp") or 0)
-    if timestamp < TOO_OLD_TIMESTAMP:
-        return
 
     transaction_hash = str(activity.get("transactionHash") or "")
     existing = collection.find_one({"transactionHash": transaction_hash})
     if existing:
         return
 
+    too_old = timestamp < cutoff_ts
     new_activity = {
         "proxyWallet": str(activity.get("proxyWallet") or ""),
         "timestamp": timestamp,
@@ -153,12 +160,13 @@ def _process_new_trade(activity: dict, address: str, collection) -> None:
         "bio": str(activity.get("bio") or ""),
         "profileImage": str(activity.get("profileImage") or ""),
         "profileImageOptimized": str(activity.get("profileImageOptimized") or ""),
-        "bot": False,
-        "botExcutedTime": 0,
+        "bot": True if too_old else False,
+        "botExcutedTime": 999 if too_old else 0,
     }
 
     collection.insert_one(new_activity)
-    Logger.info(f"New trade detected for {_format_address(address)}")
+    if not too_old:
+        Logger.info(f"New trade detected for {_format_address(address)}")
 
 
 def _update_trader_positions(address: str, collection) -> None:
@@ -175,6 +183,7 @@ def _update_trader_positions(address: str, collection) -> None:
 
 
 def _fetch_trade_data() -> None:
+    cutoff_ts = _get_old_trade_cutoff()
     for model in _user_models:
         address = model["address"]
         activity_collection = model["activity"]
@@ -185,7 +194,7 @@ def _fetch_trade_data() -> None:
             if not isinstance(activities, list) or not activities:
                 continue
             for activity in activities:
-                _process_new_trade(activity, address, activity_collection)
+                _process_new_trade(activity, address, activity_collection, cutoff_ts)
             _update_trader_positions(address, position_collection)
         except Exception as exc:  # noqa: BLE001
             Logger.error(f"Error fetching data for {_format_address(address)}: {format_error(exc)}")
