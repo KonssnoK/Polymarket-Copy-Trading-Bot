@@ -90,7 +90,11 @@ def _sell_entire_position(clob_client: ClobClient, position: dict) -> None:
     _update_polymarket_cache(clob_client, token_id)
 
     while remaining >= MIN_SELL_TOKENS and attempts < RETRY_LIMIT:
-        order_book = clob_client.get_order_book(token_id)
+        try:
+            order_book = clob_client.get_order_book(token_id)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Unable to fetch order book for {token_id}: {exc}")
+            break
         bids = order_book.bids
         if not bids:
             print("Order book has no bids; liquidity unavailable")
